@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/yi-nology/ekit-core/concurrency/async"
-	"github.com/yi-nology/ekit-observability/observability/logx"
+	"github.com/yi-nology/ekit-concurrency/async"
+	"github.com/yi-nology/ekit-logx"
 )
 
 const (

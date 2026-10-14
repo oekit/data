@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/yi-nology/ekit-core/concurrency/singleflight"
+	"github.com/yi-nology/ekit-concurrency/singleflight"
 )
 
 // SingleFlightCache 是带 singleflight 保护的缓存装饰器。

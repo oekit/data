@@ -1,49 +1,56 @@
 # ekit-data
 
-> 存储层——GORM 增强、通用 CRUD、缓存、分布式锁、定时任务。
+> 数据访问轻量件——缓存抽象与进程内缓存、分片定时任务。
 
 本仓库是 [ekit](https://git.enjoye.top/enjoydream/ekit)（`git.enjoye.top/enjoydream/ekit` v0.34.0）
-按框架耦合分层拆分出的独立 Go module，属于 **yi-nology** ekit 子项目矩阵。
+拆分出的独立 Go module，属于 **yi-nology** ekit 子项目矩阵（Round-2 深拆粒度）。
 
 ## 安装
 
 ```bash
-go get github.com/yi-nology/ekit-data@v0.1.0
+go get github.com/yi-nology/ekit-data@v0.2.0
 ```
 
 ## 包清单
 
-- `data/gormx/` — 连接池（函数选项）、Paginate、事务、FilterBuilder
-- `data/crud/` — 框架无关 CRUD Service（`TxRepository` 事务 + FOR UPDATE 防丢更新）；`crud/gormrepo/` — GORM 仓储实现
-- `data/cache/` — LocalCache（LRU O(1)、TOCTOU 修复）+ SingleFlight；`cache/redis/` — Redis 后端
-- `data/redisx/` — Redis 客户端封装
-- `data/distlock/` — Redis 分布式锁
-- `data/timertask/` — 分片定时任务（FNV-1a hash）
+- \`cache/\` — cache 抽象接口 + LocalCache（LRU O(1)、TOCTOU 修复）+ SingleFlightCache
+- \`timertask/\` — 分片定时任务（FNV-1a hash）
+
+> SQL/GORM 全家已迁 [ekit-gorm](https://github.com/yi-nology/ekit-gorm)；Redis 全家已迁 [ekit-redis](https://github.com/yi-nology/ekit-redis)。
 
 ## 依赖关系
 
-子项目矩阵与依赖方向（自底向上）：
+子项目矩阵与依赖方向（自底向上，19 仓）：
 
 ```
-ekit-core                      纯工具层（零内部依赖）
-  └─ ekit-observability        日志/追踪/指标门面
-       └─ ekit-registry        注册发现 + 配置
-            ├─ ekit-data       存储层
-            ├─ ekit-network    网络客户端
-            │    └─ ekit-nns   服务治理客户端
-            │         └─ ekit-bootstrap  应用引导
-            ├─ ekit-hertz      Hertz 生态
-            ├─ ekit-kitex      Kitex 生态
-            └─ ekit-workflow   流程编排
+ekit-core            文本/数据工具 + governance/lifecycle/version      （零内部依赖）
+ekit-concurrency     并发与流控原语                                     （零内部依赖）
+ekit-logx            日志门面 + shutdown                                （零内部依赖）
+ekit-istio           Istio Proxyless                                    （零内部依赖）
+  ekit-metrics       Prometheus 门面                          → core
+  ekit-tracing       OTel + traceid                           → logx
+  ekit-registry      注册发现 + 配置                          → core, logx
+    ekit-data        缓存抽象 + 定时任务                      → core, logx, concurrency
+      ekit-gorm      SQL/GORM 全家                            → core, logx
+      ekit-redis     Redis 全家                               → data, core, logx
+    ekit-httpx       HTTP 客户端 + 负载均衡                   → core, concurrency, logx, metrics, tracing, registry
+      ekit-nns       服务治理客户端                           → httpx, registry, core, logx, tracing, metrics
+        ekit-bootstrap 应用引导
+    ekit-middleware  Hertz 中间件栈                           → core, concurrency, logx, metrics, tracing, registry
+    ekit-hertz       Hertz 运行时/适配/instrumentation        → middleware, gorm, nns, registry, metrics, tracing, logx, core
+    ekit-kitex       Kitex 生态                               → nns, registry, core, concurrency, logx, metrics
+  ekit-workflow      流程编排                                 → concurrency, logx
 ```
 
-依赖：[ekit-core](https://github.com/yi-nology/ekit-core)、[ekit-observability](https://github.com/yi-nology/ekit-observability)。
+> 注：`ekit-observability` 已在 Round-2 深拆中解散——logx 迁 [ekit-logx]、metrics 迁 [ekit-metrics]、
+> tracing/traceid 迁 [ekit-tracing]、shutdown 迁 [ekit-logx]；原仓库已归档。
+
+依赖：[ekit-core](https://github.com/yi-nology/ekit-core)、[ekit-logx](https://github.com/yi-nology/ekit-logx)、[ekit-concurrency](https://github.com/yi-nology/ekit-concurrency)。
 
 ## 与 ekit 单体仓库的关系
 
-- 代码与 ekit v0.34.0 等价，仅 module 路径从 `git.enjoye.top/enjoydream/ekit/...` 改为 `github.com/yi-nology/ekit-data/...`
-- 后续演进以各子仓库独立发版（SemVer）；ekit 单体仓库保留完整历史与架构文档（docs/PLATFORM_CONTRACT.md）
-- 开发规范（命名/错误处理/并发安全/日志门面）沿用 ekit AGENTS.md 约定
+- 代码与 ekit v0.34.0 等价，module 路径 `git.enjoye.top/enjoydream/ekit/...` → `github.com/yi-nology/ekit-data/...`
+- 各子仓库独立发版（SemVer）；开发规范沿用 ekit AGENTS.md 约定
 
 ## License
 

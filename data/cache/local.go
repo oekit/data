@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yi-nology/ekit-core/concurrency/async"
-	"github.com/yi-nology/ekit-observability/observability/logx"
+	"github.com/yi-nology/ekit-concurrency/async"
+	"github.com/yi-nology/ekit-logx"
 )
 
 var cacheLog = logx.Delegating("cache")

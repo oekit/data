@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yi-nology/ekit-core/concurrency/async"
+	"github.com/yi-nology/ekit-concurrency/async"
 )
 
 // localTaskItem 本地任务条目（用于优先队列）。
