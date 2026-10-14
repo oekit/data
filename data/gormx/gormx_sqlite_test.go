@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/ekit-core/pkg/pagination"
 	"github.com/google/uuid"
+	"github.com/yi-nology/ekit-core/pkg/pagination"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

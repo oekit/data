@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/yi-nology/ekit-core/concurrency/async"
 	"github.com/yi-nology/ekit-observability/observability/logx"
-	"github.com/redis/go-redis/v9"
 )
 
 var log = logx.Delegating("distlock")
