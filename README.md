@@ -14,15 +14,22 @@
 go get github.com/oekit/data@v0.3.2
 ```
 
-## 快速使用
+## 能做什么
 
+- **NewChecker**：后台刷新 + failTTL 降级 + inflight 合并（同 key 并发只刷一次）
+- **LocalCache/SingleFlightCache**：进程内缓存，LRU O(1)、TOCTOU 已修复
+- **Key 构造**：UserKey/TenantKey/HashKey 统一 key 规范
+
+## 使用示例
+
+### 带降级的刷新缓存
 ```go
 import "github.com/oekit/data/cache"
 
-checker := cache.NewChecker(refreshFn, time.Minute, 10*time.Second)
-// TTL 到期后台刷新；刷新失败按 failTTL 降级；并发请求合并为一次刷新
-```
-
+ck := cache.NewChecker(func(ctx context.Context) error {
+    return refreshHotList(ctx) // 刷新失败时旧值保留 failTTL
+}, time.Minute, 10*time.Second)
+_ = ck.Check(ctx)
 ## 包清单
 
 - \`cache/\` — cache 抽象接口 + LocalCache（LRU O(1)、TOCTOU 修复）+ SingleFlightCache
