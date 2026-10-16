@@ -49,12 +49,15 @@ type LocalConfig[T any] struct {
 
 // LocalCache 是基于内存的本地缓存实现。
 // 适用于单实例场景或作为二级缓存。
-// 使用 Close() 方法停止后台清理 goroutine；Close 可安全重复调用。
+// 淘汰策略为写序淘汰（FIFO + 重写提升，读命中不提升——非严格 LRU）：
+// 达到 MaxSize 后淘汰最早写入（且未被重写刷新）的条目。
+// 使用 Close(ctx) 方法停止后台清理 goroutine；Close 可安全重复调用，
+// 签名对齐仓库硬规则 Close(ctx context.Context) error。
 type LocalCache[T any] struct {
 	mu        sync.RWMutex
 	data      map[string]*localEntry[T]
 	cfg       LocalConfig[T]
-	order     []string       // 用于 LRU 淘汰（尾部最新）
+	order     []string       // 写序淘汰队列（尾部最新；重写提升，读命中不提升）
 	orderIdx  map[string]int // key → order 切片索引，O(1) 移除
 	done      chan struct{}
 	closeOnce sync.Once
@@ -77,11 +80,16 @@ func NewLocalCache[T any](cfg LocalConfig[T]) *LocalCache[T] {
 	return c
 }
 
-// Close 停止后台清理 goroutine。
-func (c *LocalCache[T]) Close() {
+// Close 停止后台清理 goroutine（TTL>0 时构造启动的那个）。
+// sync.Once 保证幂等：重复 Close 不 panic、不返回错误。
+//
+// ctx 预留：当前实现同步返回 nil，ctx 不阻塞——本实现无外部资源需要
+// 排空，仅关闭内部 done channel 通知 cleanup goroutine 退出。
+func (c *LocalCache[T]) Close(ctx context.Context) error {
 	c.closeOnce.Do(func() {
 		close(c.done)
 	})
+	return nil
 }
 
 // Get 获取缓存。

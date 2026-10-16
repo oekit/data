@@ -20,8 +20,8 @@ func TestLocalCache_GetOrLoad_NullMarker(t *testing.T) {
 		},
 		// NullTTL 未设置 → 默认 1 分钟
 	})
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	got, err := c.GetOrLoad(ctx, "missing")
 	if err != nil {
@@ -67,8 +67,8 @@ func TestLocalCache_NullTTL_Disabled(t *testing.T) {
 		},
 		NullTTL: -1, // 显式禁用
 	})
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	for i := 0; i < 2; i++ {
 		if _, err := c.GetOrLoad(ctx, "missing"); err != nil {
@@ -90,8 +90,8 @@ func TestLocalCache_NullMarker_Expiry(t *testing.T) {
 		},
 		NullTTL: 30 * time.Millisecond,
 	})
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	_, _ = c.GetOrLoad(ctx, "missing")
 	if sourceCalls != 1 {
@@ -119,8 +119,8 @@ func TestLocalCache_NullMarker_Del(t *testing.T) {
 			return nil, nil
 		},
 	})
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	_, _ = c.GetOrLoad(ctx, "missing")
 	_ = c.Del(ctx, "missing")
@@ -139,8 +139,8 @@ func TestLocalCache_NullMarker_ConcurrentGetOrLoad(t *testing.T) {
 			return nil, nil
 		},
 	})
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	var wg sync.WaitGroup
 	for g := 0; g < 20; g++ {

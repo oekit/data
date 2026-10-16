@@ -126,9 +126,14 @@ func TestLocalCache_Size(t *testing.T) {
 func TestLocalCache_Close(t *testing.T) {
 	cfg := LocalConfig[int]{TTL: 50 * time.Millisecond}
 	c := NewLocalCache[int](cfg)
-	c.Close() // 应当停止后台 cleanup goroutine
-	// 二次 close 应 panic（close closed channel），不直接测以免污染 suite
-	// 仅验证 close 本身不 panic
+	ctx := context.Background()
+	if err := c.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	// 幂等：重复 Close 不 panic、不返回错误（sync.Once 保护）
+	if err := c.Close(ctx); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
 }
 
 func TestLocalCache_DelBatch(t *testing.T) {
@@ -256,8 +261,8 @@ func TestLocalCache_ExpiredEntry(t *testing.T) {
 func TestLocalCache_ConcurrentAccess(t *testing.T) {
 	cfg := LocalConfig[int]{TTL: 50 * time.Millisecond}
 	c := NewLocalCache[int](cfg)
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	const goroutines = 20
 	const opsPerGoroutine = 100
@@ -297,8 +302,8 @@ func TestLocalCache_ConcurrentGetOrLoad(t *testing.T) {
 		},
 	}
 	c := NewLocalCache[int](cfg)
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	const goroutines = 50
 	var wg sync.WaitGroup
@@ -339,10 +344,10 @@ func TestSingleFlightCache_ConcurrentGetOrLoad(t *testing.T) {
 			return &v, nil
 		},
 	})
-	defer inner.Close()
+	ctx := context.Background()
+	defer func() { _ = inner.Close(ctx) }()
 
 	sf := NewSingleFlightCache[int](inner)
-	ctx := context.Background()
 
 	const goroutines = 30
 	var wg sync.WaitGroup
@@ -372,8 +377,8 @@ func TestSingleFlightCache_ConcurrentGetOrLoad(t *testing.T) {
 func TestLocalCache_RemoveMiddleEntry(t *testing.T) {
 	cfg := LocalConfig[int]{TTL: 5 * time.Minute, MaxSize: 3}
 	c := NewLocalCache[int](cfg)
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	v1, v2, v3 := 1, 2, 3
 	_ = c.Set(ctx, "a", &v1)
@@ -406,8 +411,8 @@ func TestLocalCache_RemoveMiddleEntry(t *testing.T) {
 func TestLocalCache_SetOrderEviction(t *testing.T) {
 	cfg := LocalConfig[int]{TTL: 5 * time.Minute, MaxSize: 3}
 	c := NewLocalCache[int](cfg)
-	defer c.Close()
 	ctx := context.Background()
+	defer func() { _ = c.Close(ctx) }()
 
 	v1, v2, v3 := 1, 2, 3
 	_ = c.Set(ctx, "a", &v1)
