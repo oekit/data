@@ -1,13 +1,19 @@
 # AGENTS.md — oekit/data
 
-> LocalCache（TTL/容量/空值防穿透）+ SingleFlightCache + 缓存键构造 + cachetest 契约测试套件；嵌套聚合模块 all/ 一键拉齐数据全家桶 + TwoLevelCache 两级缓存；刷新检查器（TTL 后台刷新/failTTL）见 github.com/oekit/pkg 的 cache 子包
-> 当前版本：`v0.4.1`（嵌套模块 all: `all/v0.1.0`） · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
+> oekit 数据访问门面——复刻 ekit 单体 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（实现住 pkg/cache 与 gormx/redisx/timertask 各子仓）
+> 当前版本：`v0.5.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
-`cache/`（import `github.com/oekit/data/cache`）、`cachetest/`（契约测试套件）、
-`all/`（嵌套聚合模块 `github.com/oekit/data/all`：一次 require 拉齐 data/gormx/redisx/timertask
-四子仓 + `TwoLevelCache` 两级缓存；doc.go blank import 固化子仓依赖防 tidy 清除；
-只做依赖聚合与胶水件，不做 API re-export——业务代码仍 import 各子仓原始路径）
+纯 re-export 门面，八子包壳（type alias 与源包同一类型 + 泛型函数包装）：
+`cache/`（← pkg/cache）、`rediscache/`（← redisx/cache）、`crud/`（← gormx/crud）、
+`distlock/`（← redisx/distlock）、`gormx/`（← gormx）、`redisx/`（← redisx）、
+`timertask/`（← timertask）、`cachetest/`（← pkg/cache/cachetest）。
+
+**门面硬规则**：
+- 壳文件（shell.go/generic.go）只做 alias 与转发，禁止实现逻辑；实现演进在源仓
+- 源仓新增导出符号时壳需同步（跟版税）；`internal/testsame` 供壳测试做类型同一性断言
+- 缓存接口与契约套件的真相源在 `github.com/oekit/pkg` 的 `cache` 子包（v0.4.0 起）
+- `all/` 聚合模块已废弃（v0.1.1 retract），由本门面取代
 
 ## 硬规则速览（全矩阵适用）
 
