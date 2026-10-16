@@ -1,6 +1,6 @@
 # data
 
-> oekit 数据访问门面——复刻 ekit 单体库 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 + cached 缓存读写编排，一个 import 前缀直达
+> oekit 数据访问门面——复刻 ekit 单体库 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 + cached 缓存读写编排 + twolevel 两级缓存，一个 import 前缀直达
 
 > 🌐 项目主页：**https://oekit.github.io/** · 名称由来：**O**pen **E**asy **Kit**（开源 · 易用 · 工具集合）
 > 🤖 AI Agent：本仓规范与硬规则见 [AGENTS.md](AGENTS.md)；机器可读索引见 [llms.txt](https://oekit.github.io/llms.txt)（接口签名以源码为准）。
@@ -28,11 +28,10 @@ go get github.com/oekit/data@v0.6.0
 | `timertask` | 分片定时任务（FNV-1a 分片、心跳续约） | [timertask](https://github.com/oekit/timertask) |
 | `cachetest` | CacheAside 实现契约测试套件（8 场景） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` |
 
-唯一例外是 `cached`（v0.6.0 起，本仓实现）：**缓存读写编排**——把
-cache-aside 语义套在 `gormx/crud` 仓储上，增删改写库成功后失效缓存、
-查询未命中回源构建缓存：
+仅有的两个例外是本仓原生子包：**缓存读写编排**与**两级缓存组合**：
 
-| `cached` | 缓存读写编排装饰器（点读回填 + 写后失效 + 事务提交后失效 + 查询缓存版本号失效） | 本仓 `cached/` |
+| `cached` | 缓存读写编排装饰器（点读回填 + 写后失效 + 事务提交后失效 + 查询缓存版本号失效 + GetByIDs + bloom 防穿透） | 本仓 `cached/` |
+| `twolevel` | 两级缓存组合（L1 本地 + L2 远端读穿写透）+ 跨实例失效广播（Redis pubsub） | 本仓 `twolevel/` |
 
 > 缓存接口与契约套件已下沉 [pkg](https://github.com/oekit/pkg) 的 `cache`
 > 子包（v0.4.0）——Redis 等后端实现依赖接口，接口必须位于门面下游。
@@ -187,12 +186,84 @@ repo := cached.NewRepository[User](rawRepo, factory, cached.WithID[User](idOf))
 - 并发回填存在窗口期竞态（miss→回源旧值→并发写→回填旧值），这是
   cache-aside 的固有窗口，由 TTL 兜底——不是本包可根治的问题
 
+### 批量点读 GetByIDs
+
+```go
+users, err := repo.GetByIDs(ctx, []int64{1, 2, 3})
+// users 只含找到的；不存在的 ID 不在 map 且不算错误（null marker 已缓存，
+// 第二轮同类查询仓储零调用）；单个 ID 的仓储硬错误不阻断其余，errors.Join 聚合
+```
+
+逐 ID 走点读缓存路径（SingleFlight 去重回源）；Redis 后端是 N 次往返，
+大批量场景自行控制批次大小。
+
+### bloom 防穿透（可选件，慎用）
+
+```go
+import "github.com/oekit/redisx"
+
+bf, _ := redisCli.NewBloomFilter(ctx, "cached:user:bloom", 0.001, 1_000_000)
+repo := cached.NewRepository[User](rawRepo, factory,
+    cached.WithID[User](idOf),
+    cached.WithBloomFilter[User](bf), // 回源前先问布隆，"绝对不存在"零仓储调用
+)
+```
+
+**启用前提（违反 = 数据消失级事故）**：所有写入必须走本装饰器（Create
+自动 Add 新 ID，事务提交后同样生效）；存量 ID 必须预热；ID 空间单调递增
+（自增主键满足）。bloom 读失败 fail-open 放行仓储（绝不 fail-closed）。
+
+## twolevel：两级缓存 + 跨实例失效广播
+
+L1 本地缓存 + L2 任意 CacheAside（典型 RedisCache）读穿写透组合，实现
+`cache.CacheAside[T]`——可作为 `cached.NewRepository` 的后端工厂产物，
+也可独立使用。多实例部署时挂 `Bus`（Redis pubsub）广播失效，驱逐所有
+实例的 L1 副本。
+
+```go
+import (
+    "github.com/oekit/data/cache"
+    "github.com/oekit/data/cached"
+    "github.com/oekit/data/twolevel"
+    redisx "github.com/oekit/redisx"
+    redisxcache "github.com/oekit/redisx/cache"
+)
+
+// 每个实例各自组装（local 各是各的，remote 共享同一 Redis）
+rdb, _ := redisx.NewClientFromAddr(addr, password, 0)
+local := cache.NewLocalCache(cache.LocalConfig[User]{TTL: 30 * time.Second}) // L1 短寿
+remote := redisxcache.NewRedisCache[User](redisCli, redisxcache.RedisConfig[User]{
+    Prefix: "app:user:", TTL: 30 * time.Minute, Source: src, // L2 长寿 + 回源
+})
+tlc, _ := twolevel.NewTwoLevelCache[User](local, remote,
+    twolevel.WithBus[User](twolevel.NewBus(rdb, "evict:user")))
+_ = tlc.Start(ctx)  // 启动订阅循环（无 Bus 时 no-op）
+defer tlc.Close(ctx)
+
+// 组合 cached：写路径 DelBatch 自动双删两级 + 广播驱逐全部实例的 L1
+repo := cached.NewRepository[User](rawRepo, func(src cache.SourceFunc[User]) cache.CacheAside[User] {
+    return tlcFactoryWith(src) // 工厂内构造上面的两级组合（Source 注入 L2）
+}, cached.WithID[User](idOf))
+```
+
+语义要点：
+
+- **L1 只缓存真值**，null 防穿透完全委托 L2 的 marker（每次 L1 miss 查
+  一跳 L2 即被挡住，不回源）
+- **Del 先远端后本地**（远端失败时本地已删，读路径回填的是远端旧值，
+  短窗口 TTL 兜底；反序则本地旧值活过整个 L1 TTL）
+- **SetWithTTL 的显式 TTL 同时作用于两层**（否则 L1 长驻吞掉短 TTL）
+- **只广播失效、不广播回填**：Set/回填意味着 L2 有新值，他实例旧 L1 由
+  下一次写路径广播驱逐或 TTL 兜底
+- 组合体跑过 `cachetest` 完整契约（int/string 双类型），组合不破坏任何
+  跨实现语义
+
 ## 边界
 
 - **八个壳子包不含实现**：门面只做命名空间聚合（type alias + var 转发）；
   源仓新增导出符号时本仓壳需同步（跟版税由门面化决策承担，dependabot
-  只升 pin 不补壳）；`cached` 是唯一例外（本仓实现，组合 crud 与 pkg/cache
-  的接口，不引入新底层依赖）
+  只升 pin 不补壳）；`cached` 与 `twolevel` 是仅有的两个例外（本仓实现，
+  组合 crud 与 pkg/cache/redisx 的既有接口，不引入新底层依赖）
 - 只用单一能力时直接依赖对应子仓（依赖面最小）：gormx/redisx/timertask/pkg
 - 只需本地缓存的轻量场景可直接依赖 [pkg](https://github.com/oekit/pkg) 的
   `cache` 子包（不经门面）
@@ -201,9 +272,7 @@ repo := cached.NewRepository[User](rawRepo, factory, cached.WithID[User](idOf))
 
 ## 规划
 
-- 两级缓存装饰器（Local + Redis 读穿写透，原 all/ 模块的 TwoLevelCache）：
-  等真实需求在 `cached` 旁立项（可实现为对两个 CacheAside 的组合装饰）
-- 两级缓存失效广播（Redis pubsub 主动失效 L1）：单独立项
+- etcd/consul 后端接入（CacheAside 契约套件已备好准入门槛，等真实基建）
 
 
 ## 矩阵总览（21 活跃模块，自动生成）
@@ -217,7 +286,7 @@ repo := cached.NewRepository[User](rawRepo, factory, cached.WithID[User](idOf))
 | [metrics](https://github.com/oekit/metrics) | Prometheus 门面 + 弹性指标族 | [core](https://github.com/oekit/core) |
 | [tracing](https://github.com/oekit/tracing) | OpenTelemetry 追踪 + trace_id 真相源 | [logx](https://github.com/oekit/logx) |
 | [registry](https://github.com/oekit/registry) | 注册发现核心 + Nacos 实现 + Nacos 配置源 + sdbridge | [core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx) |
-| [data](https://github.com/oekit/data) | 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（v0.6.0 起本仓唯一非 re-export 实现：写后失效、事务提交后失效、查询缓存版本号失效）；all/ 聚合模块已废弃 retract | [concurrency](https://github.com/oekit/concurrency)、[gormx](https://github.com/oekit/gormx)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg)、[redisx](https://github.com/oekit/redisx)、[timertask](https://github.com/oekit/timertask) |
+| [data](https://github.com/oekit/data) | 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；all/ 聚合模块已废弃 retract | [concurrency](https://github.com/oekit/concurrency)、[gormx](https://github.com/oekit/gormx)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg)、[redisx](https://github.com/oekit/redisx)、[timertask](https://github.com/oekit/timertask) |
 | [gormx](https://github.com/oekit/gormx) | SQL/GORM 全家——连接池增强、框架无关 CRUD Service、仓储（原 oekit/gorm，v0.3.0 更名） | [logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
 | [redisx](https://github.com/oekit/redisx) | Redis 全家——客户端封装（根包）、分布式缓存 cache/、分布式锁 distlock、分布式限流 ratelimit（Lua 三态 + 故障本地兜底） | [concurrency](https://github.com/oekit/concurrency)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
 | [httpx](https://github.com/oekit/httpx) | HTTP 客户端 + 负载均衡——服务发现/熔断（规范哨兵 ErrCircuitOpen）/重试/指标/OTel 透传/一致性哈希（权重感知虚拟副本） | [concurrency](https://github.com/oekit/concurrency)、[core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx)、[metrics](https://github.com/oekit/metrics)、[registry](https://github.com/oekit/registry)、[tracing](https://github.com/oekit/tracing) |

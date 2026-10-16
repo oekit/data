@@ -1,6 +1,6 @@
 # AGENTS.md — oekit/data
 
-> oekit 数据访问门面——复刻 ekit 单体 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（实现住 pkg/cache 与 gormx/redisx/timertask 各子仓）+ cached 缓存读写编排（本仓唯一实现子包）
+> oekit 数据访问门面——复刻 ekit 单体 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（实现住 pkg/cache 与 gormx/redisx/timertask 各子仓）+ cached 缓存读写编排 + twolevel 两级缓存/失效广播（本仓唯二实现子包）
 > 当前版本：`v0.5.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
@@ -11,11 +11,18 @@
 `distlock/`（← redisx/distlock）、`gormx/`（← gormx）、`redisx/`（← redisx）、
 `timertask/`（← timertask）、`cachetest/`（← pkg/cache/cachetest）。
 
-`cached/`（v0.6.0 起，本仓唯一实现）：缓存读写编排装饰器——套在
+`cached/`（v0.6.0 起）：缓存读写编排装饰器——套在
 `gormx/crud.Repository[T]` 上实现 cache-aside：写库成功后失效缓存（事务路径
 在提交后统一失效）、GetByID 未命中经后端 GetOrLoad 回源回填（null marker
 防穿透/singleflight 防击穿由 pkg/cache 与 redisx/cache 后端承担）、GetOne/List
-查询缓存走「表级版本号 + QuerySpec 指纹」键（opt-in）。
+查询缓存走「表级版本号 + QuerySpec 指纹」键（opt-in）；另有 GetByIDs 批量
+点读与 WithBloomFilter 布隆防穿透可选件（启用前提：全量写入走装饰器 +
+存量预热，否则误判会造成数据不可见窗口）。
+
+`twolevel/`（v0.7.0 起）：TwoLevelCache[T] 两级缓存组合——L1 本地只缓存
+真值、null 防穿透委托 L2 marker、Del 先远端后本地、SetWithTTL 双层传导；
+Bus 失效广播（Redis pubsub）在 Del/DelBatch 时驱逐全部实例的 L1 副本
+（只广播失效不广播回填）；组合体必须跑过 cachetest 契约套件。
 
 **门面硬规则**：
 - 壳文件（shell.go/generic.go）只做 alias 与转发，禁止实现逻辑；实现演进在源仓
@@ -23,11 +30,13 @@
 - 缓存接口与契约套件的真相源在 `github.com/oekit/pkg` 的 `cache` 子包（v0.4.0 起）
 - `all/` 聚合模块已废弃（v0.1.1 retract），由本门面取代
 
-**cached 硬规则**：
+**cached/twolevel 硬规则**：
 - 失效必须发生在事务提交后（RunInTx 内删缓存会放跑「回源读到未提交旧值 →
   回填旧值」竞态）；失效失败不回滚写操作，经 WithOnError 上报，TTL 兜底
 - QueryCache 的 ttl 必须为正（构造即拒绝 0）——失效失败时 TTL 是唯一安全网
 - 点读键与查询键空间不重叠（`…:id:N` vs `…:q:…`），entity 缓存实例可复用
+- twolevel 的双删顺序固定先远端后本地（反序本地旧值活过整个 L1 TTL）；
+  Bus 发布 best-effort（失败 TTL 兜底）；订阅循环用 async.GoSafe（禁裸 go func）
 
 ## 硬规则速览（全矩阵适用）
 

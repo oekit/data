@@ -3,6 +3,30 @@
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
 
+## [v0.7.0] — 2026-10-16
+
+- **feat(twolevel)**: 新增两级缓存子包 `twolevel`（恢复 v0.5.0 门面化时随
+  all/ 一并删除的 TwoLevelCache，适配现矩阵后重新立项）：
+  - `TwoLevelCache[T]`：L1 本地 + L2 任意 CacheAside（典型 RedisCache）
+    读穿写透——L1 只缓存真值、null 防穿透委托 L2 marker、Del 先远端后
+    本地（反序则本地旧值活过整个 L1 TTL）、SetWithTTL 双层传导；组合体
+    跑过 cachetest 完整契约（int/string 双类型）+ miniredis 特性单测
+  - `Bus`：跨实例 L1 失效广播（Redis pubsub）——Del/DelBatch 时发布失效
+    消息，各实例订阅循环驱逐自己的 L1 副本（含发布者自身，幂等）；只
+    广播失效不广播回填；发布 best-effort（失败 TTL 兜底）；坏消息容忍
+    不炸订阅循环；Start/Close 生命周期合规（async.GoSafe，禁裸 go func）
+- **feat(cached)**: `GetByIDs` 批量点读——逐 ID 走点读缓存路径（SingleFlight
+  去重回源），未找到的 ID 不进 map 且不算错误（null marker 防穿透），
+  单个 ID 硬错误 errors.Join 聚合返回不阻断其余
+- **feat(cached)**: `WithBloomFilter` 布隆防穿透可选件——回源前先问布隆，
+  判定"绝对不存在"直接 null marker、仓储零调用；bloom 读失败 fail-open
+  放行仓储（绝不 fail-closed）；Create/事务提交后自动 Add 新 ID；文档
+  明确启用前提（全量写入走装饰器 + 存量预热，否则误判造成数据不可见窗口）
+- docs: README 新增 twolevel 节与 cached 扩展件小节；规划销账（两级缓存/
+  失效广播已落地，仅留 etcd/consul 后端待真实基建）；AGENTS/doc.go 同步
+  「唯二原生子包」口径；矩阵 DESC 更新（21 仓矩阵表 regen）
+- deps: 测试依赖 + github.com/alicebob/miniredis/v2（twolevel/bus 测试）
+
 ## [v0.6.0] — 2026-10-16
 
 - **feat(cached)**: 新增缓存读写编排子包 `cached`——`CachedRepository[T]` 装饰器
