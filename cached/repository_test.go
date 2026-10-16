@@ -34,6 +34,9 @@ type fakeRepo[T any] struct {
 
 	// failTx 非 nil 时 RunInTx 返回该错误（模拟回滚）。
 	failTx error
+
+	// failIDs 按 ID 注入硬错误（模拟仓储对特定行的故障）。
+	failIDs map[int64]error
 }
 
 func newFakeRepo[T any](idOf func(*T) int64, events *[]string) *fakeRepo[T] {
@@ -71,6 +74,11 @@ func (f *fakeRepo[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 	f.tick("GetByID")
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failIDs != nil {
+		if err, ok := f.failIDs[id]; ok {
+			return nil, err
+		}
+	}
 	if e, ok := f.byID[id]; ok {
 		return e, nil
 	}

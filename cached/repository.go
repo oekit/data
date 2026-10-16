@@ -36,6 +36,7 @@ type config[T any] struct {
 	typ     string
 	idFn    func(*T) int64
 	qc      *QueryCache[T]
+	bloom   BloomChecker
 	onError OnErrorFunc
 }
 
@@ -141,6 +142,10 @@ func (r *CachedRepository[T]) source(ctx context.Context, key string) (*T, error
 	id, err := strconv.ParseInt(rest, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("cached: key %q 的 ID 段非法", key)
+	}
+	// 布隆前置门（可选件）：判定"绝对不存在"直接走 null marker，仓储零调用
+	if r.bloomGate(ctx, id) {
+		return nil, nil
 	}
 	entity, err := r.cfg.repo.GetByID(ctx, id)
 	if err != nil {
@@ -282,7 +287,9 @@ func (r *CachedRepository[T]) Create(ctx context.Context, entity *T) error {
 	if err := r.cfg.repo.Create(ctx, entity); err != nil {
 		return err
 	}
-	r.invalidate(ctx, r.entityIDs(entity))
+	ids := r.entityIDs(entity)
+	r.invalidate(ctx, ids)
+	r.bloomAdd(ctx, ids)
 	return nil
 }
 
@@ -296,6 +303,7 @@ func (r *CachedRepository[T]) BatchCreate(ctx context.Context, entities []*T, ba
 		ids = append(ids, r.entityIDs(e)...)
 	}
 	r.invalidate(ctx, ids)
+	r.bloomAdd(ctx, ids)
 	return nil
 }
 
@@ -464,13 +472,20 @@ type txCollector[T any] struct {
 	inner   crud.Repository[T]
 	innerTx crud.TxRepository[T]
 
-	mu  sync.Mutex
-	ids []int64
+	mu      sync.Mutex
+	ids     []int64
+	created []int64
 }
 
 func (t *txCollector[T]) note(ids []int64) {
 	t.mu.Lock()
 	t.ids = append(t.ids, ids...)
+	t.mu.Unlock()
+}
+
+func (t *txCollector[T]) noteCreated(ids []int64) {
+	t.mu.Lock()
+	t.created = append(t.created, ids...)
 	t.mu.Unlock()
 }
 
@@ -502,7 +517,9 @@ func (t *txCollector[T]) Create(ctx context.Context, entity *T) error {
 	if err := t.inner.Create(ctx, entity); err != nil {
 		return err
 	}
-	t.note(t.outer.entityIDs(entity))
+	ids := t.outer.entityIDs(entity)
+	t.note(ids)
+	t.noteCreated(ids)
 	return nil
 }
 
@@ -515,6 +532,7 @@ func (t *txCollector[T]) BatchCreate(ctx context.Context, entities []*T, batchSi
 		ids = append(ids, t.outer.entityIDs(e)...)
 	}
 	t.note(ids)
+	t.noteCreated(ids)
 	return nil
 }
 
@@ -574,6 +592,8 @@ func (t *txCollector[T]) GetByIDForUpdate(ctx context.Context, id int64) (*T, er
 func (r *CachedRepository[T]) applyCollected(ctx context.Context, t *txCollector[T]) {
 	t.mu.Lock()
 	ids := t.ids
+	created := t.created
 	t.mu.Unlock()
 	r.invalidate(ctx, ids)
+	r.bloomAdd(ctx, created)
 }
