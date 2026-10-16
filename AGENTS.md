@@ -1,7 +1,7 @@
 # AGENTS.md — oekit/data
 
 > LocalCache（TTL/容量/空值防穿透）+ SingleFlightCache + 缓存键构造 + cachetest 契约测试套件；刷新检查器（TTL 后台刷新/failTTL）见 github.com/oekit/pkg 的 cache 子包
-> 当前版本：`v0.4.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
+> 当前版本：`v0.4.1` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
 `cache/`（import `github.com/oekit/data/cache`）、`cachetest/`（契约测试套件）

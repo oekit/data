@@ -3,6 +3,11 @@
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
 
+## [v0.4.1] — 2026-10-17
+
+- **docs**：边界段 Redis 后端指针跟随模块改名（oekit/redis → oekit/redisx，import
+  `github.com/oekit/redisx/cache`）；新增「规划」节（etcd/consul 后端接入模板、两级缓存单独立项）
+
 ## [v0.4.0] — 2026-10-16
 
 - **breaking** refactor(cache): 目录正名 `data/cache` → `cache`——import 路径

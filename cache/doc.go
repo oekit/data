@@ -6,7 +6,7 @@
 //   - LocalCache[T]（本包）: 基于内存的本地缓存（写序淘汰——FIFO + 重写
 //     提升，读命中不提升；MaxSize、TTL、空值防穿透）
 //   - SingleFlightCache[T]（本包）: 装饰器，并发回源合并防击穿
-//   - RedisCache[T]（独立模块 github.com/oekit/redis）: 基于 go-redis 的
+//   - RedisCache[T]（独立模块 github.com/oekit/redisx（import github.com/oekit/redisx/cache））: 基于 go-redis 的
 //     分布式缓存——本包零 Redis 编译依赖，用 LocalCache 的服务无需引入
 //     Redis SDK
 //
