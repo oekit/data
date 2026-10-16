@@ -98,7 +98,8 @@ func unusedSource[T any](t *testing.T) cache.SourceFunc[T] {
 }
 
 // runMiss 场景 1：未命中必须返回 (nil, nil) 且非 error——miss 不是 error。
-func runMiss[T any](t *testing.T, c Contract[T], factory func(t *testing.T, source cache.SourceFunc[T]) cache.CacheAside[T]) {
+// c 不参与本场景断言（保持与 Run 的统一签名，参数位以 _ 占位）。
+func runMiss[T any](t *testing.T, _ Contract[T], factory func(t *testing.T, source cache.SourceFunc[T]) cache.CacheAside[T]) {
 	t.Helper()
 	cc := factory(t, unusedSource[T](t))
 	ctx := context.Background()
@@ -141,7 +142,8 @@ func runSetGet[T any](t *testing.T, c Contract[T], factory func(t *testing.T, so
 	}
 
 	// 覆盖旧值
-	if err := cc.Set(ctx, "cachetest-rt", v1); err != nil {
+	err = cc.Set(ctx, "cachetest-rt", v1)
+	if err != nil {
 		t.Fatalf("Set overwrite: %v", err)
 	}
 	got, err = cc.Get(ctx, "cachetest-rt")
@@ -216,7 +218,8 @@ func runDel[T any](t *testing.T, c Contract[T], factory func(t *testing.T, sourc
 		t.Fatalf("Del 后 Exists 应为 false，got exists=%v err=%v", exists, e)
 	}
 
-	if err := cc.DelBatch(ctx, "cachetest-d2", "cachetest-never-set"); err != nil {
+	err = cc.DelBatch(ctx, "cachetest-d2", "cachetest-never-set")
+	if err != nil {
 		t.Fatalf("DelBatch: %v", err)
 	}
 	got, err = cc.Get(ctx, "cachetest-d2")
@@ -274,8 +277,8 @@ func runGetOrLoad[T any](t *testing.T, c Contract[T], factory func(t *testing.T,
 
 // runNullMarker 场景 6：Source 返回 (nil, nil) 时缓存 null 标记防穿透——
 // GetOrLoad 返回 (nil, nil)、Exists=true（null 计存在）、source 计数不再
-// 增长；Del 后 GetOrLoad 重新回源。
-func runNullMarker[T any](t *testing.T, c Contract[T], factory func(t *testing.T, source cache.SourceFunc[T]) cache.CacheAside[T]) {
+// 增长；Del 后 GetOrLoad 重新回源。c 不参与本场景断言（统一签名，_ 占位）。
+func runNullMarker[T any](t *testing.T, _ Contract[T], factory func(t *testing.T, source cache.SourceFunc[T]) cache.CacheAside[T]) {
 	t.Helper()
 	var calls int
 	cc := factory(t, func(ctx context.Context, key string) (*T, error) {
