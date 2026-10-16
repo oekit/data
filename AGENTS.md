@@ -1,7 +1,7 @@
 # AGENTS.md — oekit/data
 
-> 缓存检查器（NewChecker：TTL/failTTL/inflight 合并）+ LocalCache + SingleFlightCache
-> 当前版本：`v0.3.2` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
+> LocalCache（TTL/容量/空值防穿透）+ SingleFlightCache + 缓存键构造；刷新检查器（Checker）在 pkg/cache
+> 当前版本：`v0.3.4` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
 `data/cache/`
