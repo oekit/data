@@ -3,6 +3,28 @@
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
 
+## [v0.8.1] — 2026-10-16
+
+独立 code review（v0.7.0/v0.8.0 缓存族全量，探针实证）后的修复批——
+一致性核心判定无缺陷，修复均为契约/文档/接线级：
+
+- fix(twolevel): Bus「ctx 取消停止循环」契约兑现——go-redis `Subscribe(ctx)`
+  只用 ctx 约束订阅命令，`Channel()` 不会随 ctx 停止；补 watcher goroutine
+  （async.GoSafe + ctx.Done → stop）。测试以「第三方实例发布 → 本实例 L1
+  是否被驱逐」观测循环死活（正/负控制），修复前该测试为真红
+- fix(twolevel): 未知版本广播消息跳过（防未来 v2 语义被旧实例误读）；
+  doc 补「TTL 必须有限」前提——LocalCache TTL=0 表示永不过期，多实例
+  丢一条广播即该键无界陈旧，两级缓存场景禁止 TTL=0；Start「不报错、
+  Redis 不可达时静默重连」行为如实文档化；Bus 单生命周期文档化
+- fix(cached): bloom 前置门补齐降级路径——缓存后端故障降级直查同样过门
+  （后端故障窗口正是 ID 扫描高发期，不得变成防穿透旁路）
+- fix(cache): 门面壳同步 pkg v0.6.0 的 `BatchGetter` alias（壳同步规则
+  曾被漏；`testsame` 补接口同一性断言）
+- docs: README GetByIDs 段落对齐 v0.8.0 的 MGet 快路径（此前仍描述逐 ID
+  行为，与发布主题矛盾）；getbyids 文档实现清单补 SingleFlightCache
+- test: bloom 降级门（bloom 判不存在 → 降级路径仓储零调用）、L2 MGet
+  错误整批透传
+
 ## [v0.8.0] — 2026-10-16
 
 - feat(cached): `GetByIDs` 启用 MGet 快路径——后端具备 pkg/cache

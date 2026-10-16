@@ -172,6 +172,11 @@ func (r *CachedRepository[T]) GetByID(ctx context.Context, id int64) (*T, error)
 	v, err := r.entity.GetOrLoad(ctx, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)
+		// 降级直查同样过布隆前置门：缓存后端故障（正是 ID 扫描的高发
+		// 窗口）不能变成防穿透旁路
+		if r.bloomGate(ctx, id) {
+			return nil, crud.ErrNotFound
+		}
 		return r.cfg.repo.GetByID(ctx, id)
 	}
 	if v == nil {

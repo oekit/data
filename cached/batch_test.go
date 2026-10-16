@@ -275,3 +275,33 @@ func TestGetByIDsUsesMGetFastPath(t *testing.T) {
 		t.Fatalf("repo calls = %d, want 3（2 真值 + 1 缺席证明；marker 短路不得回源）", n)
 	}
 }
+
+// 缓存后端故障降级直查时，bloom 前置门不旁路（降级窗口正是扫描高发期）。
+func TestBloomGateSurvivesCacheDegrade(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	repo.byID[7] = &user{ID: 7, Name: "alice"}
+	bf := &fakeBloom{items: map[string]bool{"7": true}}
+	ctx := context.Background()
+
+	cr := cached.NewRepository[user](repo,
+		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
+			return &failingCache[user]{err: errors.New("redis down")}
+		},
+		cached.WithID[user](func(u *user) int64 { return u.ID }),
+		cached.WithBloomFilter[user](bf),
+	)
+
+	if _, err := cr.GetByID(ctx, 42); !errors.Is(err, crud.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound（bloom 判不存在）", err)
+	}
+	if n := repo.count("GetByID"); n != 0 {
+		t.Fatalf("repo calls = %d, want 0（降级路径不得绕过 bloom 门）", n)
+	}
+	// bloom 判"可能存在"：降级路径放行回源
+	if _, err := cr.GetByID(ctx, 7); err != nil {
+		t.Fatalf("GetByID(7): %v", err)
+	}
+	if n := repo.count("GetByID"); n != 1 {
+		t.Fatalf("repo calls = %d, want 1", n)
+	}
+}

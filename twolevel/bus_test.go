@@ -18,6 +18,10 @@ const busChannel = "test:evict"
 
 // newBussedCache 组装一个挂了失效广播的两级缓存实例（miniredis 后端）。
 func newBussedCache(t *testing.T, mr *miniredis.Miniredis, prefix string) (*twolevel.TwoLevelCache[int], *datacache.LocalCache[int], *redisx.Client) {
+	return newBussedCacheCtx(t, mr, prefix, context.Background())
+}
+
+func newBussedCacheCtx(t *testing.T, mr *miniredis.Miniredis, prefix string, startCtx context.Context) (*twolevel.TwoLevelCache[int], *datacache.LocalCache[int], *redisx.Client) {
 	t.Helper()
 	mr.ClockTTL(true)
 
@@ -35,7 +39,7 @@ func newBussedCache(t *testing.T, mr *miniredis.Miniredis, prefix string) (*twol
 	if err != nil {
 		t.Fatalf("NewTwoLevelCache: %v", err)
 	}
-	if err := c.Start(context.Background()); err != nil {
+	if err := c.Start(startCtx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close(context.Background()) })
@@ -147,4 +151,69 @@ func TestDelWithoutBusStillWorks(t *testing.T) {
 	if ok, _ := local.Exists(ctx, "k"); ok {
 		t.Fatal("L1 未被删除")
 	}
+}
+
+// ctx 取消必须真正停止订阅循环（go-redis Subscribe(ctx) 只约束订阅命令，
+// 停止靠 Bus 内部 watcher）。观测方式：取消前 B.Del 能驱逐 A 的 L1（正
+// 控制）；取消后 B.Del 不再驱逐 A 的 L1（负断言——Del 同步删发布者自身
+// 本地与远端，与订阅循环无关，故必须用第三方发布来观测 A 的循环）。
+func TestBusStopsOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mr := miniredis.RunT(t)
+
+	cacheA, localA, _ := newBussedCacheCtx(t, mr, "a", ctx)
+	var cacheB *twolevel.TwoLevelCache[int]
+	{
+		goredis := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+		localB := datacache.NewLocalCache(datacache.LocalConfig[int]{TTL: time.Minute})
+		remoteB := redisxcache.NewRedisCache(goredis, redisxcache.RedisConfig[int]{
+			Prefix: "b:", TTL: time.Minute,
+		})
+		rdb, err := redisx.NewClientFromAddr(mr.Addr(), "", 0)
+		if err != nil {
+			t.Fatalf("redisx client: %v", err)
+		}
+		cacheB, err = twolevel.NewTwoLevelCache[int](localB, remoteB,
+			twolevel.WithBus[int](twolevel.NewBus(rdb, busChannel)))
+		if err != nil {
+			t.Fatalf("NewTwoLevelCache B: %v", err)
+		}
+		if err := cacheB.Start(context.Background()); err != nil {
+			t.Fatalf("Start B: %v", err)
+		}
+		t.Cleanup(func() { _ = cacheB.Close(context.Background()) })
+	}
+
+	// 正控制：取消前，B.Del 的广播能驱逐 A 的 L1
+	v := 3
+	if err := localA.Set(ctx, "k", &v); err != nil {
+		t.Fatalf("A L1 Set: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_ = cacheB.Del(context.Background(), "k")
+		if ok, _ := localA.Exists(context.Background(), "k"); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("正控制失败：B.Del 未能驱逐 A 的 L1（广播链路不通）")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// 取消 A 的 ctx 并给 watcher 落地时间
+	cancel()
+	time.Sleep(300 * time.Millisecond)
+
+	// 负断言：A 循环已死，B.Del 的广播不再驱逐 A 的 L1
+	if err := localA.Set(ctx, "k", &v); err != nil {
+		t.Fatalf("A L1 Set: %v", err)
+	}
+	_ = cacheB.Del(context.Background(), "k")
+	time.Sleep(400 * time.Millisecond)
+	if ok, _ := localA.Exists(context.Background(), "k"); !ok {
+		t.Fatal("ctx 取消后 A 的订阅循环应已停止，L1 不应再被广播驱逐")
+	}
+	_ = cacheA.Close(context.Background())
 }

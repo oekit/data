@@ -18,6 +18,7 @@ func TestTypeIdentity(t *testing.T) {
 	bwd := cache.NewLocalCache(cache.LocalConfig[int]{})
 	testsame.Assert[*pkgcache.LocalCache[int]](bwd) // 门面 → 源
 	testsame.Assert[pkgcache.CacheAside[int]](bwd)  // 接口同一
+	testsame.Assert[pkgcache.BatchGetter[int]](bwd) // 批量能力接口同一
 }
 
 // TestGetOrLoadSmoke 门面入口行为冒烟。

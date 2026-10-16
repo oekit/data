@@ -1,4 +1,4 @@
-// Package cache 是 data 门面子包：缓存域——接口（Cache/CacheAside/SourceFunc）+ 本地缓存（LocalCache/SingleFlightCache）+ 缓存键构造 + Checker。实现在 pkg/cache。
+// Package cache 是 data 门面子包：缓存域——接口（Cache/CacheAside/BatchGetter/SourceFunc）+ 本地缓存（LocalCache/SingleFlightCache）+ 缓存键构造 + Checker。实现在 pkg/cache。
 //
 // re-export 自 github.com/oekit/pkg/cache：类型为泛型 type alias（与源包**完全同一类型**，
 // 双向赋值互通）；非泛型函数/变量经 var 引用同一函数值。源包新增导出符号时
@@ -7,6 +7,7 @@ package cache
 
 import src "github.com/oekit/pkg/cache"
 
+type BatchGetter[T any] = src.BatchGetter[T]
 type Cache[T any] = src.Cache[T]
 type CacheAside[T any] = src.CacheAside[T]
 type Checker = src.Checker

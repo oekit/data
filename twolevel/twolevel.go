@@ -66,6 +66,10 @@ func NewTwoLevelCache[T any](
 
 // Start 启动失效广播订阅循环（无 bus 时为 no-op）。调用方负责在应用
 // 生命周期内持有 ctx；Close 或 ctx 取消都会停止循环。
+//
+// 注意：Start 本身不报错——go-redis 的订阅错误是异步的，Redis 不可达时
+// 循环会静默重连（Channel 自带重连）；可观测性靠 Bus 内部日志。
+// Bus 为单生命周期：Close 后复用需新建（WithBus 重新挂接）。
 func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
 	if c.bus != nil {
 		c.bus.start(ctx, c.evictLocal)

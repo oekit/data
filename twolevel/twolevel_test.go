@@ -70,10 +70,11 @@ func (f *fakeLocal) Exists(ctx context.Context, key string) (bool, error) {
 
 // fakeRemote 记录操作事件的远端缓存 fake。
 type fakeRemote struct {
-	mu     sync.Mutex
-	store  map[string]int
-	events *[]string
-	source datacache.SourceFunc[int]
+	mu      sync.Mutex
+	store   map[string]int
+	events  *[]string
+	source  datacache.SourceFunc[int]
+	mgetErr error
 }
 
 func newFakeRemote(events *[]string, source datacache.SourceFunc[int]) *fakeRemote {

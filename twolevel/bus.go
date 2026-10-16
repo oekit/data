@@ -32,20 +32,26 @@ type busMessage struct {
 // 发布是 best-effort：失败记日志不阻断删除（远端实例靠 TTL 兜底）。
 //
 // 生命周期由 TwoLevelCache 管理（WithBus 挂接 + Start/Close），不单独
-// Start/Stop。
+// Start/Stop；单生命周期（Close 后复用需新建 Bus——ctx watcher 的 done
+// 通道一次性）。
 type Bus struct {
 	client  *redisx.Client
 	channel string
 
-	mu      sync.Mutex
-	started bool
-	pubsub  *redis.PubSub
+	mu        sync.Mutex
+	started   bool
+	pubsub    *redis.PubSub
+	done      chan struct{}
+	closeOnce sync.Once
 }
+
+// 编译期守卫：Bus 依赖 sync.Once/closeOnce。
+var _ = sync.Once{}
 
 // NewBus 创建失效广播。client 用于 Publish 与 Subscribe（redisx.Client
 // 的键转换规则对两端一致）；channel 建议按实体类型/键空间划分。
 func NewBus(client *redisx.Client, channel string) *Bus {
-	return &Bus{client: client, channel: channel}
+	return &Bus{client: client, channel: channel, done: make(chan struct{})}
 }
 
 // start 启动订阅循环（幂等；ctx 取消或 stop 均会结束循环）。
@@ -62,12 +68,29 @@ func (b *Bus) start(ctx context.Context, onEvict func(key string)) {
 
 	// redis.PubSub.Channel() 自带断线重连；Close 后 channel 关闭，循环退出
 	msgs := pubsub.Channel()
+
+	// ctx 取消 watcher：go-redis 的 Subscribe(ctx) 只用 ctx 约束订阅命令，
+	// Channel() 会一直收到 Close 为止——文档承诺的"ctx 取消停止循环"
+	// 由此兑现；显式 stop（Close）经 done 通道让 watcher 退出。
+	async.GoSafe(func() {
+		select {
+		case <-ctx.Done():
+			b.stop()
+		case <-b.done:
+		}
+	})
+
 	async.GoSafe(func() {
 		for msg := range msgs {
 			var m busMessage
 			if err := json.Unmarshal([]byte(msg.Payload), &m); err != nil {
 				twoLevelLog.Warn("two-level bus malformed message",
 					"channel", b.channel, "err", err)
+				continue
+			}
+			if m.Version > busVersion {
+				twoLevelLog.Warn("two-level bus unknown message version, skipped",
+					"channel", b.channel, "version", m.Version)
 				continue
 			}
 			for _, k := range m.Keys {
@@ -96,10 +119,12 @@ func (b *Bus) publish(ctx context.Context, keys []string) {
 // stop 停止订阅循环。
 func (b *Bus) stop() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if b.pubsub != nil {
 		_ = b.pubsub.Close()
 		b.pubsub = nil
 	}
 	b.started = false
+	b.mu.Unlock()
+	// done 关闭一次性（Close 后复用需新建 Bus，见类型文档）
+	b.closeOnce.Do(func() { close(b.done) })
 }

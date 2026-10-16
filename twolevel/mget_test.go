@@ -2,6 +2,7 @@ package twolevel_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -26,6 +27,11 @@ func (f *fakeLocal) MGet(ctx context.Context, keys ...string) (map[string]*int, 
 func (f *fakeRemote) MGet(ctx context.Context, keys ...string) (map[string]*int, error) {
 	f.mu.Lock()
 	*f.events = append(*f.events, "remote:MGet")
+	if f.mgetErr != nil {
+		e := f.mgetErr
+		f.mu.Unlock()
+		return nil, e
+	}
 	out := make(map[string]*int, len(keys))
 	for _, k := range keys {
 		if v, ok := f.store[k]; ok {
@@ -156,5 +162,23 @@ func TestTwoLevelMGetFallbackWithoutBatch(t *testing.T) {
 	}
 	if ok, _ := local.Exists(ctx, "rk"); !ok {
 		t.Fatal("退化路径同样要回填 L1")
+	}
+}
+
+// L2 批量读错误整批透传（契约：反序列化/管道失败 = 整批错误）。
+func TestTwoLevelMGetPropagatesL2Error(t *testing.T) {
+	var events []string
+	ctx := context.Background()
+	local := newFakeLocal(&events)
+	remote := newFakeRemote(&events, nil)
+	boom := errors.New("cluster down")
+	remote.mgetErr = boom
+
+	c, err := twolevel.NewTwoLevelCache[int](local, remote)
+	if err != nil {
+		t.Fatalf("NewTwoLevelCache: %v", err)
+	}
+	if _, err = c.MGet(ctx, "a", "b"); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom（L2 批量错误必须透传）", err)
 	}
 }

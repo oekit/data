@@ -10,7 +10,8 @@ import (
 )
 
 // GetByIDs 批量点读：后端具备 MGet 批量能力（pkg/cache.BatchGetter，
-// LocalCache/RedisCache/twolevel 组合体均已实现）时一次批量往返拿真值，
+// LocalCache/RedisCache/SingleFlightCache/twolevel 组合体均已实现）时
+// 一次批量往返拿真值，
 // 缺席键再逐个走点读缓存路径（真 miss 回源回填、null marker 在后端短路）
 // ——N 次网络往返收敛为 1 次批量 + 有限次回源；批量读失败自动降级逐 ID。
 //
