@@ -15,7 +15,9 @@ jobs:
     uses: oekit/.github/.github/workflows/go-ci.yml@main
     with:
       go-version: '1.24'
-      # all/ 聚合嵌套模块（其依赖 redisx/timertask 要求 go >= 1.26，
-      # GOTOOLCHAIN 默认 auto 会自动切换工具链）
+      # all/ 聚合嵌套模块（其依赖 redisx/timertask 要求 go >= 1.26）。
+      # 共享 workflow 固定 GOTOOLCHAIN=local（主 job go 1.24 测根模块），
+      # 此处显式放开 auto 让 go 按 all/go.mod 自动切换 1.26 工具链。
       additional-script: |-
+        export GOTOOLCHAIN=auto
         cd all && go build ./... && go test -race -count=1 ./...
