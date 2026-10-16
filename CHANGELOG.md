@@ -3,6 +3,62 @@
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
 
+## [v0.6.0] — 2026-10-16
+
+- **feat(cached)**: 新增缓存读写编排子包 `cached`——`CachedRepository[T]` 装饰器
+  （实现 `crud.Repository[T]` + `TxRepository[T]`，可直接作为
+  `crud.NewBaseService` 仓储，事务路径经类型断言自动启用）：
+  - 点读 GetByID：未命中经后端 `GetOrLoad` 回源回填（null marker 防穿透、
+    singleflight 防击穿由后端承担）；ErrNotFound ↔ (nil, nil) 双向翻译；
+    缓存读失败降级直查仓储
+  - 写后失效：Create/BatchCreate/Update/UpdateFields/Delete/BatchDelete
+    写库成功后删实体键 + bump 表级版本；失效失败**不回滚写操作**（返回错误
+    会诱发重试双写），经 `WithOnError` 上报，TTL 兜底
+  - 事务安全：`RunInTx` 事务内的写操作只收集失效清单，**提交成功后统一
+    失效**（事务内删缓存会放跑「回源读到未提交旧值 → 回填旧值」竞态）；
+    回滚不失效；事务内读直通仓储
+  - 查询缓存 opt-in（`QueryCache`）：GetOne/List 走「表级版本号 +
+    QuerySpec 指纹（JSON SHA-256，带算法版本号）」键，任意写整体失效；
+    ForUpdate 永不缓存、负结果不缓存、指纹失败降级直通；**ttl 必须为正**
+    （构造即拒绝——失效失败时 TTL 是唯一安全网）
+  - 缺省 ID 探测：`GetID() int64` 接口（gormx.BaseModel 系天然满足）→
+    名为 ID 的可导出 int64 字段；`WithID` 可覆盖；完全取不到 ID 时写路径
+    退化为版本 bump / TTL 兜底
+  - 键空间：`{prefix}:{type}:id:N` / `…:q:one|list:{ver}:{fp}` / `…:ver`，
+    点读键与查询键不重叠（entity 缓存实例可复用）
+  - 测试 30 例（点读/写路径/查询缓存/事务时序/嵌套事务 + sqlite×gormrepo×
+    BaseService 集成），`-race` 全绿；提交后失效、版本 bump 两项关键行为
+    经变异检查；独立 code review（探针实证）后修复以下问题：
+  - **fix(cached)**: 嵌套 `RunInTx` 透传 fn 导致内层写绕过失效收集——
+    提交后不失效、点读读到 TTL 窗口内旧值；改为重新包装收集器，
+    内层写继续记账（探针复现 → 修复 → 嵌套事务测试固化）
+  - **fix(cached)**: 缺省 ID 探测在结构体类型上查 `GetID`，而指针接收者
+    方法（gormx.BaseModel 的 GetID 即是）只在指针方法集——纯 GetID
+    实体（无可导出 ID 字段）失效静默失效；改在指针类型上探测
+  - **fix(cached)**: 指纹防碰撞加固——`driver.Valuer` 风格非导出字段参数
+    恒编 `{}`/`null`，不同取值同指纹会串数据（查到错误数据而非旧数据），
+    此类参数 fail-closed 拒绝指纹降级直通（`DefaultFingerprint` 逐参数
+    区分度校验）；chan/func 序列化失败维持原有直通
+  - refactor(cached): `Option[T]` → `CachedOption[T]`（仓内硬规则禁裸
+    Option；`data/cache` 壳已存在 `cache.Option` 会 co-import 冲突）
+  - docs(cached): 包文档拆至 doc.go 并补「别名警示」（LocalCache 零拷贝
+    返回共享引用，调用方一律只读）；QueryCache 构造期拒绝 nil 后端实例；
+    提交后失效改用 `context.WithoutCancel`（调用方取消不吞失效）；
+    版本读失败空版本兜底文档如实化（持续降级窗口可命中上轮空版本条目，
+    仍受 TTL 约束）；`QueryPage` 文档签名笔误修正
+- docs: README/doc.go/AGENTS 同步 cached 子包；矩阵 DESC 更新（21 仓矩阵表 regen）；
+  补录 v0.5.0 节（此前漏记）
+
+## [v0.5.0] — 2026-10-16
+
+- **breaking** feat!: data 门面化——八子包 re-export 复刻 ekit data/ 能力面
+  （cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest，类型为
+  泛型 type alias 与源包同一类型；实现住 pkg 与各子仓）
+- **breaking** feat(all)!: `all/` 聚合模块全部版本 retract——一键全家桶由本
+  门面取代（期间短暂引入的 all/ 聚合嵌套模块一并废弃）
+- fix(ci): all 模块测试放开 GOTOOLCHAIN=auto（共享 workflow 固定 local 的冲突）
+- fix(cachetest): 修 golangci-lint v2.14 存量违规（2 处 govet shadow + 2 处 unparam）
+
 ## [v0.4.1] — 2026-10-17
 
 - **docs**：边界段 Redis 后端指针跟随模块改名（oekit/redis → oekit/redisx，import

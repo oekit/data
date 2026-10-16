@@ -1,19 +1,33 @@
 # AGENTS.md — oekit/data
 
-> oekit 数据访问门面——复刻 ekit 单体 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（实现住 pkg/cache 与 gormx/redisx/timertask 各子仓）
+> oekit 数据访问门面——复刻 ekit 单体 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（实现住 pkg/cache 与 gormx/redisx/timertask 各子仓）+ cached 缓存读写编排（本仓唯一实现子包）
 > 当前版本：`v0.5.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
-纯 re-export 门面，八子包壳（type alias 与源包同一类型 + 泛型函数包装）：
+纯 re-export 门面 + 一个原生子包。
+
+八个壳子包（type alias 与源包同一类型 + 泛型函数包装）：
 `cache/`（← pkg/cache）、`rediscache/`（← redisx/cache）、`crud/`（← gormx/crud）、
 `distlock/`（← redisx/distlock）、`gormx/`（← gormx）、`redisx/`（← redisx）、
 `timertask/`（← timertask）、`cachetest/`（← pkg/cache/cachetest）。
+
+`cached/`（v0.6.0 起，本仓唯一实现）：缓存读写编排装饰器——套在
+`gormx/crud.Repository[T]` 上实现 cache-aside：写库成功后失效缓存（事务路径
+在提交后统一失效）、GetByID 未命中经后端 GetOrLoad 回源回填（null marker
+防穿透/singleflight 防击穿由 pkg/cache 与 redisx/cache 后端承担）、GetOne/List
+查询缓存走「表级版本号 + QuerySpec 指纹」键（opt-in）。
 
 **门面硬规则**：
 - 壳文件（shell.go/generic.go）只做 alias 与转发，禁止实现逻辑；实现演进在源仓
 - 源仓新增导出符号时壳需同步（跟版税）；`internal/testsame` 供壳测试做类型同一性断言
 - 缓存接口与契约套件的真相源在 `github.com/oekit/pkg` 的 `cache` 子包（v0.4.0 起）
 - `all/` 聚合模块已废弃（v0.1.1 retract），由本门面取代
+
+**cached 硬规则**：
+- 失效必须发生在事务提交后（RunInTx 内删缓存会放跑「回源读到未提交旧值 →
+  回填旧值」竞态）；失效失败不回滚写操作，经 WithOnError 上报，TTL 兜底
+- QueryCache 的 ttl 必须为正（构造即拒绝 0）——失效失败时 TTL 是唯一安全网
+- 点读键与查询键空间不重叠（`…:id:N` vs `…:q:…`），entity 缓存实例可复用
 
 ## 硬规则速览（全矩阵适用）
 
