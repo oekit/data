@@ -3,7 +3,10 @@ module github.com/oekit/data
 go 1.26.0
 
 require (
+	github.com/alicebob/miniredis/v2 v2.40.0
+	github.com/oekit/concurrency v0.1.5
 	github.com/oekit/gormx v0.3.0
+	github.com/oekit/logx v0.1.9
 	github.com/oekit/pkg v0.4.0
 	github.com/oekit/redisx v0.6.0
 	github.com/oekit/timertask v0.1.4
@@ -19,8 +22,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
-	github.com/oekit/concurrency v0.1.5 // indirect
-	github.com/oekit/logx v0.1.9 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
