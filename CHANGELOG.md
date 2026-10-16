@@ -3,6 +3,20 @@
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
 
+## [v0.8.0] — 2026-10-16
+
+- feat(cached): `GetByIDs` 启用 MGet 快路径——后端具备 pkg/cache
+  `BatchGetter[T]` 批量能力（LocalCache/RedisCache/SingleFlightCache 组合/
+  TwoLevelCache 组合体均已实现）时一次批量往返拿真值，缺席键逐个回退
+  GetOrLoad（真 miss 回源回填、null marker 在后端短路），N 次往返收敛为
+  1 次批量 + 有限次回源；批量读失败自动降级逐 ID；输入去重保序
+- feat(twolevel): `TwoLevelCache` 新增 `MGet` 跨层批量——L1 批量命中直达，
+  L1 缺席交 L2 单次批量，L2 命中逐键回填 L1；任一层无批量能力时退化
+  逐键读（装饰器透传规则：内层有批量不得在外层退化）
+- docs: README cached 扩展件小节补 MGet 快路径说明；矩阵 DESC 同步
+- deps: github.com/oekit/pkg v0.6.0（BatchGetter）、redisx v0.7.0
+  （RedisCache.MGet 管道化）
+
 ## [v0.7.0] — 2026-10-16
 
 - **feat(twolevel)**: 新增两级缓存子包 `twolevel`（恢复 v0.5.0 门面化时随

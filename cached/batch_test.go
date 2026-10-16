@@ -5,7 +5,9 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
+	dcache "github.com/oekit/data/cache"
 	"github.com/oekit/data/cached"
 	"github.com/oekit/gormx/crud"
 )
@@ -196,5 +198,80 @@ func TestTxCreateAddsBloomAfterCommit(t *testing.T) {
 	bf.mu.Unlock()
 	if !added {
 		t.Fatal("事务提交后必须把新 ID 加入 bloom")
+	}
+}
+
+// mgetCountingCache 包装 SingleFlightCache，统计 MGet 调用（断言快路径启用）。
+type mgetCountingCache struct {
+	inner  *dcache.SingleFlightCache[user]
+	called *int
+}
+
+func (m *mgetCountingCache) MGet(ctx context.Context, keys ...string) (map[string]*user, error) {
+	*m.called++
+	return m.inner.MGet(ctx, keys...)
+}
+func (m *mgetCountingCache) Get(ctx context.Context, key string) (*user, error) {
+	return m.inner.Get(ctx, key)
+}
+func (m *mgetCountingCache) Set(ctx context.Context, key string, value *user) error {
+	return m.inner.Set(ctx, key, value)
+}
+func (m *mgetCountingCache) SetWithTTL(ctx context.Context, key string, value *user, ttl time.Duration) error {
+	return m.inner.SetWithTTL(ctx, key, value, ttl)
+}
+func (m *mgetCountingCache) Del(ctx context.Context, key string) error {
+	return m.inner.Del(ctx, key)
+}
+func (m *mgetCountingCache) DelBatch(ctx context.Context, keys ...string) error {
+	return m.inner.DelBatch(ctx, keys...)
+}
+func (m *mgetCountingCache) Exists(ctx context.Context, key string) (bool, error) {
+	return m.inner.Exists(ctx, key)
+}
+func (m *mgetCountingCache) GetOrLoad(ctx context.Context, key string) (*user, error) {
+	return m.inner.GetOrLoad(ctx, key)
+}
+func (m *mgetCountingCache) Refresh(ctx context.Context, key string) (*user, error) {
+	return m.inner.Refresh(ctx, key)
+}
+
+// GetByIDs 必须走 MGet 快路径（一轮一次批量），缺席键回退 GetOrLoad。
+func TestGetByIDsUsesMGetFastPath(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	repo.byID[1] = &user{ID: 1, Name: "a"}
+	repo.byID[2] = &user{ID: 2, Name: "b"}
+	ctx := context.Background()
+
+	mgetCalls := 0
+	cr := cached.NewRepository[user](repo,
+		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
+			local := dcache.NewLocalCache(dcache.LocalConfig[user]{
+				TTL: time.Minute, Source: src, NullTTL: time.Minute,
+			})
+			return &mgetCountingCache{
+				inner:  dcache.NewSingleFlightCache(local),
+				called: &mgetCalls,
+			}
+		},
+		cached.WithID[user](func(u *user) int64 { return u.ID }),
+	)
+
+	got, err := cr.GetByIDs(ctx, []int64{1, 2, 99})
+	if err != nil {
+		t.Fatalf("GetByIDs: %v", err)
+	}
+	if mgetCalls != 1 {
+		t.Fatalf("MGet calls = %d, want 1（快路径必须启用）", mgetCalls)
+	}
+	if len(got) != 2 {
+		t.Fatalf("map size = %d, want 2", len(got))
+	}
+	// 第二轮：命中走 MGet，99 的 marker 缺席 → GetOrLoad 短路，仓储零新增
+	if _, err = cr.GetByIDs(ctx, []int64{1, 2, 99}); err != nil {
+		t.Fatalf("second GetByIDs: %v", err)
+	}
+	if n := repo.count("GetByID"); n != 3 {
+		t.Fatalf("repo calls = %d, want 3（2 真值 + 1 缺席证明；marker 短路不得回源）", n)
 	}
 }

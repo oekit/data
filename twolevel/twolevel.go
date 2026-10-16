@@ -171,6 +171,76 @@ func (c *TwoLevelCache[T]) GetOrLoad(ctx context.Context, key string) (*T, error
 	return v, nil
 }
 
+// MGet 跨层批量读：L1 具备批量能力则单次锁区间取回，缺席键交 L2 单次
+// 批量（两层都不具备时退化为逐键读），L2 命中逐键回填 L1。缺席语义与
+// (nil, nil) 双关一致：不存在与 null marker 一律缺席——L2 的 marker 短路
+// 不参与 MGet（纯读），缺席键的消费方应回退 GetOrLoad。
+func (c *TwoLevelCache[T]) MGet(ctx context.Context, keys ...string) (map[string]*T, error) {
+	out := make(map[string]*T, len(keys))
+	var misses []string
+
+	if lg, ok := c.local.(cache.BatchGetter[T]); ok {
+		l1, err := lg.MGet(ctx, keys...)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range l1 {
+			out[k] = v
+		}
+		for _, k := range keys {
+			if _, hit := l1[k]; !hit {
+				misses = append(misses, k)
+			}
+		}
+	} else {
+		for _, k := range keys {
+			v, err := c.local.Get(ctx, k)
+			if err != nil {
+				return nil, err
+			}
+			if v != nil {
+				out[k] = v
+			} else {
+				misses = append(misses, k)
+			}
+		}
+	}
+
+	if len(misses) == 0 {
+		return out, nil
+	}
+	l2, err := c.remoteMGet(ctx, misses)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range l2 {
+		out[k] = v
+		c.backfillLocal(ctx, k, v)
+	}
+	return out, nil
+}
+
+// 编译期能力契约：两级组合体透传批量能力。
+var _ cache.BatchGetter[int] = (*TwoLevelCache[int])(nil)
+
+// remoteMGet L2 批量读：远端具备批量能力则单次管道往返，否则逐键退化。
+func (c *TwoLevelCache[T]) remoteMGet(ctx context.Context, keys []string) (map[string]*T, error) {
+	if bg, ok := c.remote.(cache.BatchGetter[T]); ok {
+		return bg.MGet(ctx, keys...)
+	}
+	out := make(map[string]*T, len(keys))
+	for _, k := range keys {
+		v, err := c.remote.Get(ctx, k)
+		if err != nil {
+			return nil, err
+		}
+		if v != nil {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
 // Refresh 刷新：清 L1 后走 L2 的删除重载（null marker 一并清除），新值回填 L1。
 func (c *TwoLevelCache[T]) Refresh(ctx context.Context, key string) (*T, error) {
 	if err := c.local.Del(ctx, key); err != nil {
