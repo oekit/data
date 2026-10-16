@@ -36,7 +36,7 @@ cfg, err := c.GetOrLoad(ctx, "tenant:acme")
 
 ## 边界
 
-- Redis 后端（同一接口的 Redis 实现）在独立模块 [redis](https://github.com/oekit/redis)
+- Redis 后端（同一接口的 Redis 实现）在独立模块 [redisx](https://github.com/oekit/redisx)
 - 新后端（etcd/consul 等）实现 `CacheAside[T]` 并跑过 [cachetest](https://github.com/oekit/data/tree/main/cachetest)
   契约套件（`Run` 全绿）方可接入
 - SQL/GORM 在 [gorm](https://github.com/oekit/gorm)；定时任务在 `timertask/`
