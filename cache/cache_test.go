@@ -14,65 +14,10 @@ type testUser struct {
 	Name string `json:"name"`
 }
 
-func TestLocalCache(t *testing.T) {
-	cfg := LocalConfig[testUser]{
-		TTL: 5 * time.Minute,
-	}
-	c := NewLocalCache[testUser](cfg)
+// 契约套件接入（cachetest.Run）见 contract_suite_test.go（package cache_test
+// 外部测试包——cachetest 反向 import 本包，内部测试包接入会构成 import cycle）。
 
-	ctx := context.Background()
-
-	// Test Set and Get
-	user := &testUser{ID: 1, Name: "test"}
-	_ = c.Set(ctx, "user:1", user)
-
-	got, err := c.Get(ctx, "user:1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.ID != 1 || got.Name != "test" {
-		t.Errorf("expected {1 test}, got %+v", got)
-	}
-
-	// Test Del
-	_ = c.Del(ctx, "user:1")
-	got, err = c.Get(ctx, "user:1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Errorf("expected nil, got %+v", got)
-	}
-}
-
-func TestLocalCache_GetOrLoad(t *testing.T) {
-	cfg := LocalConfig[testUser]{
-		TTL: 5 * time.Minute,
-		Source: func(ctx context.Context, key string) (*testUser, error) {
-			return &testUser{ID: 1, Name: "loaded"}, nil
-		},
-	}
-	c := NewLocalCache[testUser](cfg)
-
-	ctx := context.Background()
-
-	got, err := c.GetOrLoad(ctx, "user:1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.Name != "loaded" {
-		t.Errorf("expected loaded, got %+v", got)
-	}
-
-	// Second call should return cached value
-	got, err = c.GetOrLoad(ctx, "user:1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.Name != "loaded" {
-		t.Errorf("expected loaded, got %+v", got)
-	}
-}
+// --- LocalCache 特有场景（套件不覆盖的实现专属行为） ---
 
 func TestLocalCache_MaxSize(t *testing.T) {
 	cfg := LocalConfig[int]{
@@ -136,67 +81,6 @@ func TestLocalCache_Close(t *testing.T) {
 	}
 }
 
-func TestLocalCache_DelBatch(t *testing.T) {
-	cfg := LocalConfig[int]{}
-	c := NewLocalCache[int](cfg)
-	ctx := context.Background()
-
-	for i, k := range []string{"a", "b", "c"} {
-		v := i + 1
-		_ = c.Set(ctx, k, &v)
-	}
-	if err := c.DelBatch(ctx, "a", "b", "missing"); err != nil {
-		t.Fatal(err)
-	}
-	if c.Size() != 1 {
-		t.Errorf("expected 1 entry remaining, got %d", c.Size())
-	}
-}
-
-func TestLocalCache_Exists(t *testing.T) {
-	cfg := LocalConfig[int]{}
-	c := NewLocalCache[int](cfg)
-	ctx := context.Background()
-
-	v := 42
-	_ = c.Set(ctx, "k", &v)
-
-	exists, err := c.Exists(ctx, "k")
-	if err != nil || !exists {
-		t.Errorf("expected k to exist, got exists=%v err=%v", exists, err)
-	}
-
-	exists, err = c.Exists(ctx, "missing")
-	if err != nil || exists {
-		t.Errorf("expected missing, got exists=%v err=%v", exists, err)
-	}
-}
-
-func TestLocalCache_Refresh(t *testing.T) {
-	loadCount := 0
-	cfg := LocalConfig[testUser]{
-		TTL: 5 * time.Minute,
-		Source: func(ctx context.Context, key string) (*testUser, error) {
-			loadCount++
-			return &testUser{ID: loadCount, Name: key}, nil
-		},
-	}
-	c := NewLocalCache[testUser](cfg)
-	ctx := context.Background()
-
-	// 首次加载
-	first, err := c.Refresh(ctx, "k1")
-	if err != nil || first == nil || first.ID != 1 {
-		t.Fatalf("first Refresh: got %+v err=%v", first, err)
-	}
-
-	// 二次 Refresh 应重新从 Source 加载
-	second, err := c.Refresh(ctx, "k1")
-	if err != nil || second == nil || second.ID != 2 {
-		t.Fatalf("second Refresh: got %+v err=%v", second, err)
-	}
-}
-
 func TestLocalCache_GetOrLoad_SourceError(t *testing.T) {
 	sentinel := errors.New("source down")
 	cfg := LocalConfig[testUser]{
@@ -228,31 +112,6 @@ func TestLocalCache_GetOrLoad_NoSource(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("expected nil, got %+v", got)
-	}
-}
-
-func TestLocalCache_ExpiredEntry(t *testing.T) {
-	// TTL 1ns 的 entry 几乎立即过期
-	cfg := LocalConfig[testUser]{TTL: time.Nanosecond}
-	c := NewLocalCache[testUser](cfg)
-	ctx := context.Background()
-
-	user := &testUser{ID: 1, Name: "ephemeral"}
-	_ = c.Set(ctx, "k", user)
-	time.Sleep(time.Millisecond) // 确保过期
-
-	got, err := c.Get(ctx, "k")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Errorf("expected nil for expired entry, got %+v", got)
-	}
-
-	// 同样 Exists 应当返回 false
-	exists, _ := c.Exists(ctx, "k")
-	if exists {
-		t.Error("expected expired entry to not exist")
 	}
 }
 
@@ -333,6 +192,7 @@ func TestLocalCache_ConcurrentGetOrLoad(t *testing.T) {
 
 // TestSingleFlightCache_ConcurrentGetOrLoad 验证 SingleFlightCache
 // 在并发请求下只调用一次 Source（dedup 有效性）。
+// 契约套件不做弱一致性断言，dedup 是本实现专属强保证，留在此处。
 func TestSingleFlightCache_ConcurrentGetOrLoad(t *testing.T) {
 	var sourceCalls atomic.Int32
 	inner := NewLocalCache[int](LocalConfig[int]{
@@ -406,8 +266,9 @@ func TestLocalCache_RemoveMiddleEntry(t *testing.T) {
 	}
 }
 
-// TestLocalCache_SetOrderEviction 验证 Set 顺序淘汰。
-// re-Set 的 key 会被移到队列尾部（最新），淘汰时从头部移除。
+// TestLocalCache_SetOrderEviction 验证写序淘汰（FIFO + 重写提升，读命中
+// 不提升——非严格 LRU）。re-Set 的 key 会被移到队列尾部（最新），
+// 淘汰时从头部移除。
 func TestLocalCache_SetOrderEviction(t *testing.T) {
 	cfg := LocalConfig[int]{TTL: 5 * time.Minute, MaxSize: 3}
 	c := NewLocalCache[int](cfg)
@@ -435,33 +296,5 @@ func TestLocalCache_SetOrderEviction(t *testing.T) {
 	got, _ = c.Get(ctx, "b")
 	if got == nil || *got != 2 {
 		t.Errorf("expected b=2 (re-set promoted), got %v", got)
-	}
-}
-
-func TestSingleFlightCache(t *testing.T) {
-	// 走本地缓存（无 Redis）来覆盖 NewSingleFlightCache wrapper 的 Set/Del/Get。
-	inner := NewLocalCache[testUser](LocalConfig[testUser]{TTL: time.Minute})
-	sf := NewSingleFlightCache(inner)
-
-	ctx := context.Background()
-	_ = sf.Set(ctx, "k", &testUser{ID: 1, Name: "x"})
-
-	got, err := sf.Get(ctx, "k")
-	if err != nil || got == nil || got.Name != "x" {
-		t.Errorf("expected x, got %+v err=%v", got, err)
-	}
-
-	_ = sf.SetWithTTL(ctx, "k2", &testUser{ID: 2, Name: "y"}, time.Minute)
-	got, _ = sf.Get(ctx, "k2")
-	if got == nil || got.Name != "y" {
-		t.Errorf("expected y, got %+v", got)
-	}
-
-	if err := sf.Del(ctx, "k"); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = sf.Get(ctx, "k")
-	if got != nil {
-		t.Errorf("expected nil after del, got %+v", got)
 	}
 }

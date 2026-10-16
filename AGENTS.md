@@ -1,10 +1,10 @@
 # AGENTS.md — oekit/data
 
-> LocalCache（TTL/容量/空值防穿透）+ SingleFlightCache + 缓存键构造；刷新检查器（Checker）在 pkg/cache
-> 当前版本：`v0.3.4` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
+> LocalCache（TTL/容量/空值防穿透）+ SingleFlightCache + 缓存键构造 + cachetest 契约测试套件；刷新检查器（TTL 后台刷新/failTTL）见 github.com/oekit/pkg 的 cache 子包
+> 当前版本：`v0.4.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
-`data/cache/`
+`cache/`（import `github.com/oekit/data/cache`）、`cachetest/`（契约测试套件）
 
 ## 硬规则速览（全矩阵适用）
 
@@ -37,6 +37,11 @@
 ### Option 与命名
 - 函数选项模式 `XxxOption`（禁止裸 `Option`，多包 co-import 冲突）
 - 导出符号 PascalCase + godoc 注释；包文档放 doc.go
+
+### 测试契约
+- cache 新后端（`CacheAside[T]` 实现，etcd/consul/...）**必须**跑过
+  `github.com/oekit/data/cachetest` 契约套件（`Run` 全绿，含 -race）方可接入；
+  本仓 cache 自身经 `cache/contract_suite_test.go`（外部测试包）接入同一套件
 
 ### 版本与发版
 - SemVer；0.x 阶段 minor 允许 breaking；发版 = 打 annotated tag 推远端（CI 自动跑 lint+test）

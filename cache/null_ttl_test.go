@@ -7,54 +7,12 @@ import (
 	"time"
 )
 
-// --- M7: LocalCache 空值缓存（接口文档承诺的行为） ---
-
-// TestLocalCache_GetOrLoad_NullMarker 回归测试（M7）：LocalCache.GetOrLoad
-// 必须缓存 null marker（此前根本不缓存空值，与 interface.go 文档相反）。
-func TestLocalCache_GetOrLoad_NullMarker(t *testing.T) {
-	var sourceCalls int
-	c := NewLocalCache[testUser](LocalConfig[testUser]{
-		Source: func(ctx context.Context, key string) (*testUser, error) {
-			sourceCalls++
-			return nil, nil
-		},
-		// NullTTL 未设置 → 默认 1 分钟
-	})
-	ctx := context.Background()
-	defer func() { _ = c.Close(ctx) }()
-
-	got, err := c.GetOrLoad(ctx, "missing")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Errorf("expected nil, got %+v", got)
-	}
-	if sourceCalls != 1 {
-		t.Fatalf("expected 1 Source call, got %d", sourceCalls)
-	}
-
-	// 第二次：命中 null marker，不再调 Source
-	got, err = c.GetOrLoad(ctx, "missing")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Errorf("expected nil from null marker hit, got %+v", got)
-	}
-	if sourceCalls != 1 {
-		t.Errorf("expected still 1 Source call (null marker 防穿透), got %d", sourceCalls)
-	}
-
-	// Get/Exists 对 null marker 的语义：Get 返回 (nil, nil)，Exists=true（key 存在）
-	got, err = c.Get(ctx, "missing")
-	if err != nil || got != nil {
-		t.Errorf("expected Get (nil, nil), got (%+v, %v)", got, err)
-	}
-	if exists, _ := c.Exists(ctx, "missing"); !exists {
-		t.Error("expected null marker key to exist")
-	}
-}
+// --- M7: LocalCache 空值缓存 ---
+//
+// null marker 的通用语义（Source (nil,nil) → 缓存 null 标记、Exists=true、
+// 防穿透、Del 后重新回源）已由 cachetest 契约套件场景 null_marker 固化
+//（见 cache_test.go TestContract_*），本文件只保留 LocalCache 特有的
+// NullTTL 配置行为与并发覆盖。
 
 // TestLocalCache_NullTTL_Disabled 回归测试（M7）：NullTTL=-1 显式禁用空值缓存，
 // 每次 GetOrLoad 都重新调用 Source。
@@ -107,27 +65,6 @@ func TestLocalCache_NullMarker_Expiry(t *testing.T) {
 	_, _ = c.GetOrLoad(ctx, "missing")
 	if sourceCalls != 2 {
 		t.Errorf("expected marker expired and Source re-called (2), got %d", sourceCalls)
-	}
-}
-
-// TestLocalCache_NullMarker_Del 清除 null marker 后应重新调用 Source。
-func TestLocalCache_NullMarker_Del(t *testing.T) {
-	var sourceCalls int
-	c := NewLocalCache[testUser](LocalConfig[testUser]{
-		Source: func(ctx context.Context, key string) (*testUser, error) {
-			sourceCalls++
-			return nil, nil
-		},
-	})
-	ctx := context.Background()
-	defer func() { _ = c.Close(ctx) }()
-
-	_, _ = c.GetOrLoad(ctx, "missing")
-	_ = c.Del(ctx, "missing")
-	_, _ = c.GetOrLoad(ctx, "missing")
-
-	if sourceCalls != 2 {
-		t.Errorf("expected 2 Source calls after Del, got %d", sourceCalls)
 	}
 }
 
