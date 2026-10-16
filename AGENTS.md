@@ -1,10 +1,13 @@
 # AGENTS.md — oekit/data
 
-> LocalCache（TTL/容量/空值防穿透）+ SingleFlightCache + 缓存键构造 + cachetest 契约测试套件；刷新检查器（TTL 后台刷新/failTTL）见 github.com/oekit/pkg 的 cache 子包
-> 当前版本：`v0.4.1` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
+> LocalCache（TTL/容量/空值防穿透）+ SingleFlightCache + 缓存键构造 + cachetest 契约测试套件；嵌套聚合模块 all/ 一键拉齐数据全家桶 + TwoLevelCache 两级缓存；刷新检查器（TTL 后台刷新/failTTL）见 github.com/oekit/pkg 的 cache 子包
+> 当前版本：`v0.4.1`（嵌套模块 all: `all/v0.1.0`） · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
-`cache/`（import `github.com/oekit/data/cache`）、`cachetest/`（契约测试套件）
+`cache/`（import `github.com/oekit/data/cache`）、`cachetest/`（契约测试套件）、
+`all/`（嵌套聚合模块 `github.com/oekit/data/all`：一次 require 拉齐 data/gormx/redisx/timertask
+四子仓 + `TwoLevelCache` 两级缓存；doc.go blank import 固化子仓依赖防 tidy 清除；
+只做依赖聚合与胶水件，不做 API re-export——业务代码仍 import 各子仓原始路径）
 
 ## 硬规则速览（全矩阵适用）
 
