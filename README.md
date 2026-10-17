@@ -19,14 +19,14 @@ go get github.com/oekit/data@v0.8.2
 
 | 门面子包 | 能力 | 实现 |
 |---|---|---|
-| `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker + **AsideCache**（动态 TTL 回源 / stale-if-error） | [pkg](https://github.com/oekit/pkg) `cache/` + 本仓 `cache/aside.go` |
+| `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker | [pkg](https://github.com/oekit/pkg) `cache/` |
 | `rediscache` | Redis 分布式缓存（CacheAside 的 Redis 后端） | [redisx](https://github.com/oekit/redisx) `cache/` |
 | `crud` | 框架无关 CRUD Service/仓储 | [gormx](https://github.com/oekit/gormx) `crud/` |
 | `distlock` | 分布式锁（RedisLocker/WithLock/优雅降级） | [redisx](https://github.com/oekit/redisx) `distlock/` |
 | `gormx` | SQL/GORM 增强（Open/审计/OTel 插件/分页/单例仓储） | [gormx](https://github.com/oekit/gormx) |
 | `redisx` | Redis 客户端封装（String/Hash/Set/ZSet/Bloom/Batch/PubSub） | [redisx](https://github.com/oekit/redisx) |
-| `timertask` | 分片定时任务（FNV-1a 分片、心跳续约） | [timertask](https://github.com/oekit/timertask) |
-| `cachetest` | CacheAside 实现契约测试套件（8 场景 + 动态 TTL / stale-if-error 扩展） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` + 本仓 `cachetest/aside.go` |
+| `timertask` | 分片定时任务（FNV-1a 分片、心跳续约、at-least-once 可靠投递） | [timertask](https://github.com/oekit/timertask) |
+| `cachetest` | CacheAside 实现契约测试套件（8 场景） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` |
 
 仅有的两个例外是本仓原生子包：**缓存读写编排**与**两级缓存组合**：
 
@@ -56,46 +56,6 @@ remote := rediscache.NewRedisCache(redisCli, rediscache.RedisConfig[HotConfig]{
 })
 cfg, err := local.GetOrLoad(ctx, "tenant:acme")
 ```
-
-## cache.AsideCache：动态 TTL 回源 + stale-if-error
-
-`pkg/cache` 的 `GetOrLoad` 回填固定走默认 TTL、Source 失败直接上抛。
-`cache.AsideCache` 装饰器（本仓原生，套在任意 `Cache[T]` 存储上）补齐
-两处缺口：
-
-**1）回源动态 TTL**——TTL 由回源结果决定（凭证/证书/配额等响应自带有效期的资源）：
-
-```go
-type SourceFuncWithTTL[T any] func(ctx context.Context, key string) (*T, time.Duration, error)
-
-// loadCredential 返回 (*Credential, 42*time.Minute, nil)：按响应中的有效期换算安全 TTL
-aside := cache.NewAsideCache(inner, loadCredential) // inner 不要再配 Source
-cred, err := aside.GetOrLoadWithTTL(ctx, "cred:svc-a") // ttl<=0 回退默认 TTL
-```
-
-**2）fail-open stale-if-error**——Source 失败时用陈旧值兜底（宁可短暂陈旧
-也不可拒绝服务的读路径：配置、目录、配额类数据等）：
-
-```go
-aside := cache.NewAsideCache(inner, loadConfig,
-    cache.WithStaleIfError[Config](true),
-    cache.WithOnStale[Config](func(ctx context.Context, key string, v *Config) {
-        staleHits.Inc() // 可选：日志/指标上报
-    }),
-)
-```
-
-语义边界（`WithStaleIfError` godoc「实现契约」全文）：
-
-| 组合 | 语义 |
-|---|---|
-| null marker × stale | marker **不参与** stale 兜底；Source (nil,nil) 清除影子，短路返回 (nil,nil) |
-| stale 命中 | **不刷新** lastAccess、**不回填**缓存（陈旧窗口不因读而延长） |
-| Del/DelBatch | **清除** stale 影子（写后失效不得被 stale 复活） |
-| 默认 | fail-closed：未开 `WithStaleIfError` 时 Source 失败直接上抛 |
-
-扩展契约套件：`cachetest.RunTTL` / `cachetest.RunStaleIfError`（实现方
-跑通后方可声明该能力）。
 
 ## cached：缓存 CRUD（增删改失效缓存，查询构建缓存）
 
@@ -315,24 +275,26 @@ repo := cached.NewRepository[User](rawRepo, func(src cache.SourceFunc[User]) cac
 - etcd/consul 后端接入（CacheAside 契约套件已备好准入门槛，等真实基建）
 
 
-## 矩阵总览（21 活跃模块，自动生成）
+## 矩阵总览（23 活跃模块，自动生成）
 
 | 模块 | 内容 | 矩阵内依赖 |
 |---|---|---|
 | [pkg](https://github.com/oekit/pkg) | 微工具集 21 合 1（errors/bloomx/contextx/container/validator/stringx/slicex/enumx/convert/encoding/jsonrepair/httpjson/mathx/pathx/pagination/ptrx/timex/uidgen/cache/bufiox/strmap）；cache（v0.4.0 起）含缓存接口 CacheAside + BatchGetter 批量能力（MGet）+ LocalCache/SingleFlightCache + cachetest 契约 + Checker；container（v0.9.0 起，收编原 collectionx）泛型容器 Set/Ring/Queue/SafeMap + Map（sync.Map 背书）/Slice（并发安全）；timex/stringx（v0.7.0 起）时间段边界 BeginningOf/EndOf 七对（分/时/日/周/月/季/年，周起始显式参数）+ trie 多模式替换器 Replacer（最长匹配）/ NewMask 敏感词遮罩；singleflighttest（v0.8.0 起）singleflight 共享契约测试套件（internal 与 concurrency 双侧引用） | — |
 | [concurrency](https://github.com/oekit/concurrency) | 并发与流控原语（async/gopool/group/singleflight/progress/syncx/ratelimit/retry）+ window 滑动窗口 / breaker 自适应熔断（规范哨兵 ErrCircuitOpen）/ shedding CPU 自适应降载 / batch 攒批执行器（满条数/满字节/窗口去重）/ timewheel 单级时间轮 | — |
 | [logx](https://github.com/oekit/logx) | 统一日志门面（多后端可替换 + Sink + caller 归属）+ 优雅关停；桥接子包 hlog/hertzlog/kitexlog 为嵌套模块按需引入 | — |
-| [core](https://github.com/oekit/core) | 应用基建件（governance 治理 schema / config 配置加载 + default/env/range/options tag 校验 / lifecycle 契约 / network IP 工具 / version） | [logx](https://github.com/oekit/logx) |
+| [core](https://github.com/oekit/core) | 应用基建件（governance 治理 schema / config 配置加载 + default/env/range/options tag 校验 / lifecycle 契约 / network IP 工具 / version） | — |
 | [metrics](https://github.com/oekit/metrics) | Prometheus 门面 + 弹性指标族 | [core](https://github.com/oekit/core) |
 | [tracing](https://github.com/oekit/tracing) | OpenTelemetry 追踪 + trace_id 真相源 | [logx](https://github.com/oekit/logx) |
 | [registry](https://github.com/oekit/registry) | 注册发现核心 + Nacos 实现 + Nacos 配置源 + sdbridge | [core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx) |
 | [data](https://github.com/oekit/data) | 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs 批量点读 MGet 快路径/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；all/ 聚合模块已废弃 retract | [concurrency](https://github.com/oekit/concurrency)、[gormx](https://github.com/oekit/gormx)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg)、[redisx](https://github.com/oekit/redisx)、[timertask](https://github.com/oekit/timertask) |
 | [gormx](https://github.com/oekit/gormx) | SQL/GORM 全家——连接池增强、框架无关 CRUD Service、仓储（原 oekit/gorm，v0.3.0 更名） | [logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
 | [redisx](https://github.com/oekit/redisx) | Redis 全家——客户端封装（根包）、分布式缓存 cache/、分布式锁 distlock、分布式限流 ratelimit（Lua 三态 + 故障本地兜底） | [concurrency](https://github.com/oekit/concurrency)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
+| [etcdx](https://github.com/oekit/etcdx) | etcd 全家——客户端封装（根包：生产默认值/Health 探活/Close(ctx) 幂等）、registry 注册发现实现（SPI 对接 registry/nacos 链路：Lease KeepAlive 注册 + 丢约指数退避自动重注册、prefix Watch 订阅推送、ConfigStore KV 配置监听）、distlock 分布式锁（Session+concurrency.Mutex 公平排队，接口与 redisx/distlock.Locker 同形可互换，可选无 etcd 降级放行） | [concurrency](https://github.com/oekit/concurrency)、[core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx)、[registry](https://github.com/oekit/registry) |
 | [httpx](https://github.com/oekit/httpx) | HTTP 客户端 + 负载均衡——服务发现/熔断（规范哨兵 ErrCircuitOpen）/重试/指标/OTel 透传/一致性哈希（权重感知虚拟副本） | [concurrency](https://github.com/oekit/concurrency)、[core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx)、[metrics](https://github.com/oekit/metrics)、[registry](https://github.com/oekit/registry)、[tracing](https://github.com/oekit/tracing) |
 | [network](https://github.com/oekit/network) | 轻量网络客户端——WebSocket/NATS/MQ 抽象、连接与流工具 | [concurrency](https://github.com/oekit/concurrency)、[logx](https://github.com/oekit/logx)、[tracing](https://github.com/oekit/tracing) |
 | [timertask](https://github.com/oekit/timertask) | 分片定时任务（FNV-1a、心跳续约） | [concurrency](https://github.com/oekit/concurrency)、[logx](https://github.com/oekit/logx) |
 | [middleware](https://github.com/oekit/middleware) | Hertz 自研标准中间件栈 + contrib 桥接 + hmw + SheddingMiddleware 自适应降载 | [concurrency](https://github.com/oekit/concurrency)、[core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx)、[metrics](https://github.com/oekit/metrics)、[pkg](https://github.com/oekit/pkg)、[registry](https://github.com/oekit/registry)、[tracing](https://github.com/oekit/tracing) |
+| [k8s](https://github.com/oekit/k8s) | Kubernetes 客户端封装——RESTConfig/Clientset/DynamicClient 构建（显式 kubeconfig → in-cluster 自动 → KUBECONFIG/~/.kube/config 逐级回退，QPS/Burst 限流默认 50/100）+ leaderelection 子包 Lease 选主简化封装（OnStartedLeading/OnStoppedLeading/OnNewLeader 回调，主备单活，仅要求 Lease CRUD 权限） | [logx](https://github.com/oekit/logx) |
 | [nns](https://github.com/oekit/nns) | NNS 服务治理客户端——provider 无关发现/配置/实例缓存 | [concurrency](https://github.com/oekit/concurrency)、[core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx)、[registry](https://github.com/oekit/registry) |
 | [nns-endpoint](https://github.com/oekit/nns-endpoint) | NNS 端点工厂——per-service 熔断、换实例重试、gRPC 池 | [concurrency](https://github.com/oekit/concurrency)、[core](https://github.com/oekit/core)、[httpx](https://github.com/oekit/httpx)、[logx](https://github.com/oekit/logx)、[metrics](https://github.com/oekit/metrics)、[nns](https://github.com/oekit/nns)、[registry](https://github.com/oekit/registry) |
 | [bootstrap](https://github.com/oekit/bootstrap) | 应用生命周期引导——bootstrap.Run 骨架 + healthz | [concurrency](https://github.com/oekit/concurrency)、[logx](https://github.com/oekit/logx) |

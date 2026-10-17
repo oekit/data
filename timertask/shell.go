@@ -7,6 +7,7 @@ package timertask
 
 import src "github.com/oekit/timertask"
 
+type DeliveryMode = src.DeliveryMode
 type Handler = src.Handler
 type LocalBackend = src.LocalBackend
 type RedisBackend = src.RedisBackend
@@ -18,7 +19,10 @@ type TimerTaskOption = src.TimerTaskOption
 var NewLocalBackend = src.NewLocalBackend
 var NewRedisBackend = src.NewRedisBackend
 var NewShardManager = src.NewShardManager
+var WithAtLeastOnce = src.WithAtLeastOnce
 var WithBuckets = src.WithBuckets
+var WithDeliveryMode = src.WithDeliveryMode
 var WithOnFailure = src.WithOnFailure
 var WithRetry = src.WithRetry
+var WithVisibilityTimeout = src.WithVisibilityTimeout
 var WithWorkers = src.WithWorkers
