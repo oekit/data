@@ -19,14 +19,14 @@ go get github.com/oekit/data@v0.8.1
 
 | 门面子包 | 能力 | 实现 |
 |---|---|---|
-| `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker | [pkg](https://github.com/oekit/pkg) `cache/` |
+| `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker + **AsideCache**（动态 TTL 回源 / stale-if-error） | [pkg](https://github.com/oekit/pkg) `cache/` + 本仓 `cache/aside.go` |
 | `rediscache` | Redis 分布式缓存（CacheAside 的 Redis 后端） | [redisx](https://github.com/oekit/redisx) `cache/` |
 | `crud` | 框架无关 CRUD Service/仓储 | [gormx](https://github.com/oekit/gormx) `crud/` |
 | `distlock` | 分布式锁（RedisLocker/WithLock/优雅降级） | [redisx](https://github.com/oekit/redisx) `distlock/` |
 | `gormx` | SQL/GORM 增强（Open/审计/OTel 插件/分页/单例仓储） | [gormx](https://github.com/oekit/gormx) |
 | `redisx` | Redis 客户端封装（String/Hash/Set/ZSet/Bloom/Batch/PubSub） | [redisx](https://github.com/oekit/redisx) |
 | `timertask` | 分片定时任务（FNV-1a 分片、心跳续约） | [timertask](https://github.com/oekit/timertask) |
-| `cachetest` | CacheAside 实现契约测试套件（8 场景） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` |
+| `cachetest` | CacheAside 实现契约测试套件（8 场景 + 动态 TTL / stale-if-error 扩展） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` + 本仓 `cachetest/aside.go` |
 
 仅有的两个例外是本仓原生子包：**缓存读写编排**与**两级缓存组合**：
 
@@ -56,6 +56,46 @@ remote := rediscache.NewRedisCache(redisCli, rediscache.RedisConfig[HotConfig]{
 })
 cfg, err := local.GetOrLoad(ctx, "tenant:acme")
 ```
+
+## cache.AsideCache：动态 TTL 回源 + stale-if-error
+
+`pkg/cache` 的 `GetOrLoad` 回填固定走默认 TTL、Source 失败直接上抛。
+`cache.AsideCache` 装饰器（本仓原生，套在任意 `Cache[T]` 存储上）补齐
+两处缺口：
+
+**1）回源动态 TTL**——TTL 由回源结果决定（IM token `expires_in` 类场景）：
+
+```go
+type SourceFuncWithTTL[T any] func(ctx context.Context, key string) (*T, time.Duration, error)
+
+// loadToken 返回 (*Token, 42*time.Minute, nil)：expires_in 减安全偏移
+aside := cache.NewAsideCache(inner, loadToken) // inner 不要再配 Source
+tok, err := aside.GetOrLoadWithTTL(ctx, "token:slack") // ttl<=0 回退默认 TTL
+```
+
+**2）fail-open stale-if-error**——Source 失败时用陈旧值兜底（告警入口
+宁可短暂陈旧不可拒绝服务）：
+
+```go
+aside := cache.NewAsideCache(inner, loadChannels,
+    cache.WithStaleIfError[Channel](true),
+    cache.WithOnStale[Channel](func(ctx context.Context, key string, v *Channel) {
+        staleHits.Inc() // 可选：日志/指标上报
+    }),
+)
+```
+
+语义边界（`WithStaleIfError` godoc「实现契约」全文）：
+
+| 组合 | 语义 |
+|---|---|
+| null marker × stale | marker **不参与** stale 兜底；Source (nil,nil) 清除影子，短路返回 (nil,nil) |
+| stale 命中 | **不刷新** lastAccess、**不回填**缓存（陈旧窗口不因读而延长） |
+| Del/DelBatch | **清除** stale 影子（写后失效不得被 stale 复活） |
+| 默认 | fail-closed：未开 `WithStaleIfError` 时 Source 失败直接上抛 |
+
+扩展契约套件：`cachetest.RunTTL` / `cachetest.RunStaleIfError`（实现方
+跑通后方可声明该能力）。
 
 ## cached：缓存 CRUD（增删改失效缓存，查询构建缓存）
 
