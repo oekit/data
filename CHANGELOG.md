@@ -2,6 +2,10 @@
 
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
+## [v0.9.5] — 2026-10-17
+
+- timertask 地板 v0.1.7 → v0.1.8
+
 ## [v0.9.4] — 2026-10-17
 
 - pkg 地板 v0.11.0；gormx v0.5.4、redisx v0.7.5、concurrency v0.5.4 地板跟随
