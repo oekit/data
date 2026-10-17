@@ -3,6 +3,10 @@
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
 
+## [v0.9.1] — 2026-10-17
+
+- fix(deps): 内部依赖地板全量对齐最新——pkg v0.9.3、concurrency v0.5.2、logx v0.5.0、gormx v0.5.2、redisx v0.7.1、timertask v0.1.6；go 最低版本降至 1.24.0——go-redis v9.22.0、x/sys v0.41.0、x/text v0.34.0 锁 go1.24 兼容版
+
 ## [v0.9.0] — 2026-10-17
 
 - **BREAKING** fix(cache/cachetest): 删除壳残留的原生 AsideCache 族——`cache`

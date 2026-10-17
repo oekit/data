@@ -4,13 +4,13 @@ go 1.24.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/oekit/concurrency v0.1.5
-	github.com/oekit/gormx v0.5.1
-	github.com/oekit/logx v0.1.9
-	github.com/oekit/pkg v0.6.0
-	github.com/oekit/redisx v0.7.0
-	github.com/oekit/timertask v0.1.5
-	github.com/redis/go-redis/v9 v9.23.0
+	github.com/oekit/concurrency v0.5.2
+	github.com/oekit/gormx v0.5.2
+	github.com/oekit/logx v0.5.0
+	github.com/oekit/pkg v0.9.3
+	github.com/oekit/redisx v0.7.1
+	github.com/oekit/timertask v0.1.6
+	github.com/redis/go-redis/v9 v9.22.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
 )
@@ -24,8 +24,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect
 )
