@@ -63,23 +63,23 @@ cfg, err := local.GetOrLoad(ctx, "tenant:acme")
 `cache.AsideCache` 装饰器（本仓原生，套在任意 `Cache[T]` 存储上）补齐
 两处缺口：
 
-**1）回源动态 TTL**——TTL 由回源结果决定（IM token `expires_in` 类场景）：
+**1）回源动态 TTL**——TTL 由回源结果决定（凭证/证书/配额等响应自带有效期的资源）：
 
 ```go
 type SourceFuncWithTTL[T any] func(ctx context.Context, key string) (*T, time.Duration, error)
 
-// loadToken 返回 (*Token, 42*time.Minute, nil)：expires_in 减安全偏移
-aside := cache.NewAsideCache(inner, loadToken) // inner 不要再配 Source
-tok, err := aside.GetOrLoadWithTTL(ctx, "token:slack") // ttl<=0 回退默认 TTL
+// loadCredential 返回 (*Credential, 42*time.Minute, nil)：按响应中的有效期换算安全 TTL
+aside := cache.NewAsideCache(inner, loadCredential) // inner 不要再配 Source
+cred, err := aside.GetOrLoadWithTTL(ctx, "cred:svc-a") // ttl<=0 回退默认 TTL
 ```
 
-**2）fail-open stale-if-error**——Source 失败时用陈旧值兜底（告警入口
-宁可短暂陈旧不可拒绝服务）：
+**2）fail-open stale-if-error**——Source 失败时用陈旧值兜底（宁可短暂陈旧
+也不可拒绝服务的读路径：配置、目录、配额类数据等）：
 
 ```go
-aside := cache.NewAsideCache(inner, loadChannels,
-    cache.WithStaleIfError[Channel](true),
-    cache.WithOnStale[Channel](func(ctx context.Context, key string, v *Channel) {
+aside := cache.NewAsideCache(inner, loadConfig,
+    cache.WithStaleIfError[Config](true),
+    cache.WithOnStale[Config](func(ctx context.Context, key string, v *Config) {
         staleHits.Inc() // 可选：日志/指标上报
     }),
 )
