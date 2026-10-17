@@ -2,6 +2,8 @@
 
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
+## [- fix(deps): gormx v0.5.5、redisx v0.7.6、timertask v0.1.9 地板对齐（零代码改动；v0.9.7 因代理抖动未带上，本版补齐）
+
 ## [- fix(deps): gormx vv0.5.5、redisx vv0.7.6、timertask vv0.1.9 地板对齐（零代码改动）
 
 ## [- fix(deps): logx 地板 v0.5.0 → v0.6.0（零代码改动）
