@@ -10,9 +10,9 @@ import (
 
 // SourceFuncWithTTL 回源函数：TTL 由回源结果决定，而非构造期常量。
 //
-// 典型场景：IM 平台 access_token 的有效期来自响应体 expires_in（减安全
-// 偏移），无法在构造缓存时固定；返回 ttl<=0 时回填回退实现默认 TTL
-// （等价 Set 而非 SetWithTTL）。
+// 适用于回源响应自带有效期/过期时间的资源（凭证、证书、配额、动态配置等），
+// 调用方按返回值换算安全 TTL 后由本函数带回；返回 ttl<=0 时回填回退实现
+// 默认 TTL（等价 Set 而非 SetWithTTL）。
 //
 // 值语义与 (nil, nil) 双关、null marker 防穿透同 SourceFunc：
 // 返回 (nil, nil) 表示数据不存在，实现会缓存 null marker。
