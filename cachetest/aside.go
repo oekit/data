@@ -35,7 +35,7 @@ func RunTTL[T any](t *testing.T, c Contract[T], factory func(t *testing.T, sourc
 //  1. stale_serve_on_error     成功加载后 source 失败 → 返回陈旧值
 //  2. no_stale_propagates      无陈旧值时 source 失败 → 上抛错误
 //  3. null_marker_not_stale    Source 成功 (nil,nil) 后 marker 短路 (nil,nil)，
-//                             不回 stale 旧值（marker 不参与 stale）
+//     不回 stale 旧值（marker 不参与 stale）
 //  4. del_clears_stale         Del 后 source 失败 → 上抛（写后失效不得复活）
 //  5. stale_no_refill          stale 命中不回填缓存（下一跳仍回源）
 func RunStaleIfError[T any](t *testing.T, c Contract[T], factory func(t *testing.T, source cache.SourceFuncWithTTL[T]) cache.TTLCacheAside[T]) {
@@ -286,4 +286,3 @@ func runStaleNoRefill[T any](t *testing.T, c Contract[T], factory func(t *testin
 		t.Fatalf("恢复后应重新回源：call 数应增长，before=%d after=%d", firstCalls, calls)
 	}
 }
-

@@ -123,7 +123,7 @@ func TestAside_StaleIfError(t *testing.T) {
 			if mode == "fail" {
 				return nil, 0, fail
 			}
-			return &v0, 30*time.Millisecond, nil
+			return &v0, 30 * time.Millisecond, nil
 		},
 		cache.WithStaleIfError[int](true),
 		cache.WithOnStale[int](func(ctx context.Context, key string, value *int) {
@@ -172,7 +172,7 @@ func TestAside_StaleDisabled_HasValue_StillError(t *testing.T) {
 		if mode == "fail" {
 			return nil, 0, fail
 		}
-		return &v0, 30*time.Millisecond, nil
+		return &v0, 30 * time.Millisecond, nil
 	})
 	ctx := context.Background()
 	if _, err := a.GetOrLoadWithTTL(ctx, "k"); err != nil {
@@ -235,7 +235,7 @@ func TestAside_DelClearsStale(t *testing.T) {
 			if mode == "fail" {
 				return nil, 0, fail
 			}
-			return &v0, 30*time.Millisecond, nil
+			return &v0, 30 * time.Millisecond, nil
 		},
 		cache.WithStaleIfError[int](true),
 	)
@@ -263,7 +263,7 @@ func TestAside_StaleNoRefill(t *testing.T) {
 			if mode == "fail" {
 				return nil, 0, fail
 			}
-			return current, 30*time.Millisecond, nil
+			return current, 30 * time.Millisecond, nil
 		},
 		cache.WithStaleIfError[int](true),
 	)
