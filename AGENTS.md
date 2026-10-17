@@ -1,42 +1,10 @@
 # AGENTS.md — oekit/data
 
-> oekit 数据访问门面——复刻 ekit 单体 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（实现住 pkg/cache 与 gormx/redisx/timertask 各子仓）+ cached 缓存读写编排 + twolevel 两级缓存/失效广播（本仓唯二实现子包）
-> 当前版本：`v0.5.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
+> 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs 批量点读 MGet 快路径/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；all/ 聚合模块已废弃 retract
+> 当前版本：`v0.9.1` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
-纯 re-export 门面 + 一个原生子包。
-
-八个壳子包（type alias 与源包同一类型 + 泛型函数包装）：
-`cache/`（← pkg/cache）、`rediscache/`（← redisx/cache）、`crud/`（← gormx/crud）、
-`distlock/`（← redisx/distlock）、`gormx/`（← gormx）、`redisx/`（← redisx）、
-`timertask/`（← timertask）、`cachetest/`（← pkg/cache/cachetest）。
-
-`cached/`（v0.6.0 起）：缓存读写编排装饰器——套在
-`gormx/crud.Repository[T]` 上实现 cache-aside：写库成功后失效缓存（事务路径
-在提交后统一失效）、GetByID 未命中经后端 GetOrLoad 回源回填（null marker
-防穿透/singleflight 防击穿由 pkg/cache 与 redisx/cache 后端承担）、GetOne/List
-查询缓存走「表级版本号 + QuerySpec 指纹」键（opt-in）；另有 GetByIDs 批量
-点读与 WithBloomFilter 布隆防穿透可选件（启用前提：全量写入走装饰器 +
-存量预热，否则误判会造成数据不可见窗口）。
-
-`twolevel/`（v0.7.0 起）：TwoLevelCache[T] 两级缓存组合——L1 本地只缓存
-真值、null 防穿透委托 L2 marker、Del 先远端后本地、SetWithTTL 双层传导；
-Bus 失效广播（Redis pubsub）在 Del/DelBatch 时驱逐全部实例的 L1 副本
-（只广播失效不广播回填）；组合体必须跑过 cachetest 契约套件。
-
-**门面硬规则**：
-- 壳文件（shell.go/generic.go）只做 alias 与转发，禁止实现逻辑；实现演进在源仓
-- 源仓新增导出符号时壳需同步（跟版税）；`internal/testsame` 供壳测试做类型同一性断言
-- 缓存接口与契约套件的真相源在 `github.com/oekit/pkg` 的 `cache` 子包（v0.4.0 起）
-- `all/` 聚合模块已废弃（v0.1.1 retract），由本门面取代
-
-**cached/twolevel 硬规则**：
-- 失效必须发生在事务提交后（RunInTx 内删缓存会放跑「回源读到未提交旧值 →
-  回填旧值」竞态）；失效失败不回滚写操作，经 WithOnError 上报，TTL 兜底
-- QueryCache 的 ttl 必须为正（构造即拒绝 0）——失效失败时 TTL 是唯一安全网
-- 点读键与查询键空间不重叠（`…:id:N` vs `…:q:…`），entity 缓存实例可复用
-- twolevel 的双删顺序固定先远端后本地（反序本地旧值活过整个 L1 TTL）；
-  Bus 发布 best-effort（失败 TTL 兜底）；订阅循环用 async.GoSafe（禁裸 go func）
+`./`、`cache/`、`cached/`、`cachetest/`、`crud/`、`distlock/`、`gormx/`、`internal/testsame/`、`rediscache/`、`redisx/`、`timertask/`、`twolevel/`
 
 ## 硬规则速览（全矩阵适用）
 
@@ -69,11 +37,6 @@ Bus 失效广播（Redis pubsub）在 Del/DelBatch 时驱逐全部实例的 L1 �
 ### Option 与命名
 - 函数选项模式 `XxxOption`（禁止裸 `Option`，多包 co-import 冲突）
 - 导出符号 PascalCase + godoc 注释；包文档放 doc.go
-
-### 测试契约
-- cache 新后端（`CacheAside[T]` 实现，etcd/consul/...）**必须**跑过
-  `github.com/oekit/data/cachetest` 契约套件（`Run` 全绿，含 -race）方可接入；
-  本仓 cache 自身经 `cache/contract_suite_test.go`（外部测试包）接入同一套件
 
 ### 版本与发版
 - SemVer；0.x 阶段 minor 允许 breaking；发版 = 打 annotated tag 推远端（CI 自动跑 lint+test）
