@@ -3,6 +3,29 @@
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
 
+## [Unreleased]
+
+- **feat(cache)**: `AsideCache` 装饰器——任意 `Cache[T]` 存储之上的
+  Cache-Aside 扩展，补齐 pkg/cache 接口两处缺口（oekit/data#4）：
+  - **回源动态 TTL**：`SourceFuncWithTTL[T]` 把 TTL 从构造期常量改为回源
+    结果决定（IM token `expires_in` 类场景）；`GetOrLoadWithTTL` 按 source
+    返回值回填，`ttl<=0` 回退默认 TTL（走 `Set` 而非 `SetWithTTL`）；
+    `SourceFrom` 适配既有 `SourceFunc`（恒 ttl=0）
+  - **fail-open stale-if-error**：`WithStaleIfError(true)` 构造期开关——
+    Source 失败且存在陈旧真值时返回陈旧值（`WithOnStale` 上报回调 +
+    Delegating 日志），无陈旧值才上抛；默认 fail-closed 与裸 GetOrLoad
+    一致。组合语义固化在 `WithStaleIfError` godoc「实现契约」：
+    null marker **不参与** stale 兜底（Source (nil,nil) 清除影子）；
+    stale 命中**不刷新** lastAccess / **不回填**缓存；Del/DelBatch
+    **清除**影子（写后失效不得被 stale 复活）
+  - null marker 由装饰器侧持有（不依赖存储后端区分 marker），语义对齐
+    pkg/cache（Exists 计存在、防穿透、`WithAsideNullTTL` 对齐 NullTTL）
+- feat(cachetest): 扩展契约套件——`RunTTL`（动态 TTL 三场景）+
+  `RunStaleIfError`（stale-if-error 五场景，factory 须开
+  `WithStaleIfError(true)`）；AsideCache 跑通 pkg/cache cachetest 8 场景
+  + 扩展 8 场景，int 类型
+- docs: README 增补动态 TTL / stale-if-error 用法与语义边界
+
 ## [v0.8.1] — 2026-10-16
 
 独立 code review（v0.7.0/v0.8.0 缓存族全量，探针实证）后的修复批——
