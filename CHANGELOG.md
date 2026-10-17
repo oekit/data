@@ -26,6 +26,12 @@
   + 扩展 8 场景，int 类型
 - docs: README 增补动态 TTL / stale-if-error 用法与语义边界
 
+## [v0.8.2] — 2026-10-17
+
+- fix(deps): 依赖地板 gormx v0.3.0 → v0.5.1（gormx 结构重置新基线，旧版本
+  tag 已清空，原地板会导致 `go mod tidy` 与直连拉取失败）；cached 集成测试
+  import 对齐 `gormx/gormrepo` 顶层路径（原 `crud/gormrepo`，重置时提升）
+
 ## [v0.8.1] — 2026-10-16
 
 独立 code review（v0.7.0/v0.8.0 缓存族全量，探针实证）后的修复批——

@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/oekit/concurrency v0.1.5
-	github.com/oekit/gormx v0.3.0
+	github.com/oekit/gormx v0.5.1
 	github.com/oekit/logx v0.1.9
 	github.com/oekit/pkg v0.6.0
 	github.com/oekit/redisx v0.7.0
