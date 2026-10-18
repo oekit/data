@@ -98,10 +98,10 @@ func (f *fakeBloom) Add(ctx context.Context, item string) error {
 	return nil
 }
 
-func newBloomCachedRepo(repo *fakeRepo[user], bf *fakeBloom) *cached.CachedRepository[user] {
-	return cached.NewRepository[user](repo, userCacheFactory,
-		cached.WithID[user](func(u *user) int64 { return u.ID }),
-		cached.WithBloomFilter[user](bf),
+func newBloomCachedRepo(repo *fakeRepo[user], bf *fakeBloom) *cached.CachedRepository[user, int64] {
+	return cached.NewRepository[user, int64](repo, userCacheFactory,
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }),
+		cached.WithBloomFilter[user, int64](bf),
 	)
 }
 
@@ -188,7 +188,7 @@ func TestTxCreateAddsBloomAfterCommit(t *testing.T) {
 	ctx := context.Background()
 	cr := newBloomCachedRepo(repo, bf)
 
-	if err := cr.RunInTx(ctx, func(tx crud.Repository[user]) error {
+	if err := cr.RunInTx(ctx, func(tx crud.Repository[user, int64]) error {
 		return tx.Create(ctx, &user{ID: 12, Name: "tx"})
 	}); err != nil {
 		t.Fatalf("RunInTx: %v", err)
@@ -244,7 +244,7 @@ func TestGetByIDsUsesMGetFastPath(t *testing.T) {
 	ctx := context.Background()
 
 	mgetCalls := 0
-	cr := cached.NewRepository[user](repo,
+	cr := cached.NewRepository[user, int64](repo,
 		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
 			local := dcache.NewLocalCache(dcache.LocalConfig[user]{
 				TTL: time.Minute, Source: src, NullTTL: time.Minute,
@@ -254,7 +254,7 @@ func TestGetByIDsUsesMGetFastPath(t *testing.T) {
 				called: &mgetCalls,
 			}
 		},
-		cached.WithID[user](func(u *user) int64 { return u.ID }),
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }),
 	)
 
 	got, err := cr.GetByIDs(ctx, []int64{1, 2, 99})
@@ -283,12 +283,12 @@ func TestBloomGateSurvivesCacheDegrade(t *testing.T) {
 	bf := &fakeBloom{items: map[string]bool{"7": true}}
 	ctx := context.Background()
 
-	cr := cached.NewRepository[user](repo,
+	cr := cached.NewRepository[user, int64](repo,
 		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
 			return &failingCache[user]{err: errors.New("redis down")}
 		},
-		cached.WithID[user](func(u *user) int64 { return u.ID }),
-		cached.WithBloomFilter[user](bf),
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }),
+		cached.WithBloomFilter[user, int64](bf),
 	)
 
 	if _, err := cr.GetByID(ctx, 42); !errors.Is(err, crud.ErrNotFound) {

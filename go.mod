@@ -1,11 +1,11 @@
 module github.com/oekit/data
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/oekit/concurrency v0.5.4
-	github.com/oekit/gormx v0.5.5
+	github.com/oekit/gormx v0.6.0
 	github.com/oekit/logx v0.6.0
 	github.com/oekit/pkg v0.14.0
 	github.com/oekit/redisx v0.9.0

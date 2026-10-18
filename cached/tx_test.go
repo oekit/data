@@ -28,14 +28,14 @@ func TestRunInTxInvalidatesOnlyAfterCommit(t *testing.T) {
 	repo.byID[7] = &user{ID: 7, Name: "alice"}
 	ctx := context.Background()
 
-	cr := cached.NewRepository[user](repo, recordingFactory(&events),
-		cached.WithID[user](func(u *user) int64 { return u.ID }))
+	cr := cached.NewRepository[user, int64](repo, recordingFactory(&events),
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }))
 
 	if _, err := cr.GetByID(ctx, 7); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
 
-	err := cr.RunInTx(ctx, func(tx crud.Repository[user]) error {
+	err := cr.RunInTx(ctx, func(tx crud.Repository[user, int64]) error {
 		return tx.Update(ctx, &user{ID: 7, Name: "bob"})
 	})
 	if err != nil {
@@ -67,14 +67,14 @@ func TestRunInTxRollbackKeepsCache(t *testing.T) {
 	repo.byID[7] = &user{ID: 7, Name: "alice"}
 	ctx := context.Background()
 
-	cr := cached.NewRepository[user](repo, recordingFactory(&events),
-		cached.WithID[user](func(u *user) int64 { return u.ID }))
+	cr := cached.NewRepository[user, int64](repo, recordingFactory(&events),
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }))
 
 	if _, err := cr.GetByID(ctx, 7); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
 
-	err := cr.RunInTx(ctx, func(tx crud.Repository[user]) error {
+	err := cr.RunInTx(ctx, func(tx crud.Repository[user, int64]) error {
 		if err := tx.Update(ctx, &user{ID: 7, Name: "bob"}); err != nil {
 			return err
 		}
@@ -106,14 +106,14 @@ func TestTxInnerReadsBypassCache(t *testing.T) {
 	repo.byID[7] = &user{ID: 7, Name: "alice"}
 	ctx := context.Background()
 
-	cr := cached.NewRepository[user](repo, recordingFactory(&events),
-		cached.WithID[user](func(u *user) int64 { return u.ID }))
+	cr := cached.NewRepository[user, int64](repo, recordingFactory(&events),
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }))
 
 	if _, err := cr.GetByID(ctx, 7); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
 
-	_ = cr.RunInTx(ctx, func(tx crud.Repository[user]) error {
+	_ = cr.RunInTx(ctx, func(tx crud.Repository[user, int64]) error {
 		if _, err := tx.GetByID(ctx, 7); err != nil {
 			return err
 		}
@@ -132,11 +132,11 @@ func TestBaseServiceUpdateUsesTxPathAndInvalidates(t *testing.T) {
 	repo.byID[7] = &user{ID: 7, Name: "alice"}
 	ctx := context.Background()
 
-	cr := cached.NewRepository[user](repo, recordingFactory(&events),
-		cached.WithID[user](func(u *user) int64 { return u.ID }))
+	cr := cached.NewRepository[user, int64](repo, recordingFactory(&events),
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }))
 
 	type req struct{ Name string }
-	svc := crud.NewBaseService[user, req, req](cr)
+	svc := crud.NewBaseService[user, int64, req, req](cr)
 	svc.SetUpdateEntity(func(u *user, r *req) { u.Name = r.Name })
 
 	if _, err := svc.Get(ctx, 7); err != nil {
@@ -171,19 +171,19 @@ func TestRunInTxNestedStillCollects(t *testing.T) {
 	repo.byID[7] = &user{ID: 7, Name: "alice"}
 	ctx := context.Background()
 
-	cr := cached.NewRepository[user](repo, recordingFactory(&events),
-		cached.WithID[user](func(u *user) int64 { return u.ID }))
+	cr := cached.NewRepository[user, int64](repo, recordingFactory(&events),
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }))
 
 	if _, err := cr.GetByID(ctx, 7); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
 
-	err := cr.RunInTx(ctx, func(tx crud.Repository[user]) error {
-		txRepo, ok := tx.(crud.TxRepository[user])
+	err := cr.RunInTx(ctx, func(tx crud.Repository[user, int64]) error {
+		txRepo, ok := tx.(crud.TxRepository[user, int64])
 		if !ok {
 			t.Fatal("事务视图应实现 TxRepository")
 		}
-		return txRepo.RunInTx(ctx, func(inner crud.Repository[user]) error {
+		return txRepo.RunInTx(ctx, func(inner crud.Repository[user, int64]) error {
 			return inner.Update(ctx, &user{ID: 7, Name: "bob"})
 		})
 	})

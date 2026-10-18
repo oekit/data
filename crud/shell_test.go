@@ -10,9 +10,9 @@ import (
 
 // TestTypeIdentity BaseService 双向赋值。
 func TestTypeIdentity(t *testing.T) {
-	fwd := crud.NewBaseService[int, int, int](nil)
-	testsame.Assert[*gormxcrud.BaseService[int, int, int]](fwd) // 门面 → 源
+	fwd := crud.NewBaseService[int, int64, int, int](nil)
+	testsame.Assert[*gormxcrud.BaseService[int, int64, int, int]](fwd) // 门面 → 源
 
-	bwd := gormxcrud.NewBaseService[int, int, int](nil)
-	testsame.Assert[*crud.BaseService[int, int, int]](bwd) // 源 → 门面
+	bwd := gormxcrud.NewBaseService[int, int64, int, int](nil)
+	testsame.Assert[*crud.BaseService[int, int64, int, int]](bwd) // 源 → 门面
 }
