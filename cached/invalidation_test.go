@@ -197,13 +197,13 @@ func TestInvalidateFailureReportedButWriteSucceeds(t *testing.T) {
 	ctx := context.Background()
 
 	var ops []string
-	cr := cached.NewRepository[user](repo,
+	cr := cached.NewRepository[user, int64](repo,
 		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
 			return &delFailCache[user]{inner: dcache.NewSingleFlightCache(dcache.NewLocalCache(dcache.LocalConfig[user]{
 				TTL: time.Minute, Source: src,
 			}))}
 		},
-		cached.WithOnError[user](func(ctx context.Context, op string, keys []string, err error) {
+		cached.WithOnError[user, int64](func(ctx context.Context, op string, keys []string, err error) {
 			ops = append(ops, op+":"+strings.Join(keys, ","))
 		}),
 	)
@@ -237,7 +237,7 @@ func TestDefaultIDAccessorViaGetIDInterface(t *testing.T) {
 	repo.byID[5] = m
 	ctx := context.Background()
 
-	cr := cached.NewRepository[model](repo, func(src dcache.SourceFunc[model]) dcache.CacheAside[model] {
+	cr := cached.NewRepository[model, int64](repo, func(src dcache.SourceFunc[model]) dcache.CacheAside[model] {
 		return dcache.NewSingleFlightCache(dcache.NewLocalCache(dcache.LocalConfig[model]{
 			TTL: time.Minute, Source: src,
 		}))
@@ -275,7 +275,7 @@ func TestDefaultIDAccessorViaGetIDOnlyEntity(t *testing.T) {
 	repo.byID[5] = &idOnlyEntity{uid: 5, Name: "a"}
 	ctx := context.Background()
 
-	cr := cached.NewRepository[idOnlyEntity](repo, func(src dcache.SourceFunc[idOnlyEntity]) dcache.CacheAside[idOnlyEntity] {
+	cr := cached.NewRepository[idOnlyEntity, int64](repo, func(src dcache.SourceFunc[idOnlyEntity]) dcache.CacheAside[idOnlyEntity] {
 		return dcache.NewSingleFlightCache(dcache.NewLocalCache(dcache.LocalConfig[idOnlyEntity]{
 			TTL: time.Minute, Source: src,
 		}))
@@ -331,7 +331,7 @@ func TestWritePathWithoutIDAccessStillSucceeds(t *testing.T) {
 	type blob struct{ Name string }
 	repo := newFakeRepo[blob](func(b *blob) int64 { return 0 }, nil)
 	ctx := context.Background()
-	cr := cached.NewRepository[blob](repo, func(src dcache.SourceFunc[blob]) dcache.CacheAside[blob] {
+	cr := cached.NewRepository[blob, int64](repo, func(src dcache.SourceFunc[blob]) dcache.CacheAside[blob] {
 		return dcache.NewSingleFlightCache(dcache.NewLocalCache(dcache.LocalConfig[blob]{
 			TTL: time.Minute, Source: src,
 		}))

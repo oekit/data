@@ -1,3 +1,27 @@
+## [v0.14.0] — 2026-10-19
+
+### BREAKING: crud 壳别名参数化 + cached 全链路主键类型泛型化（跟随 gormx v0.6.0，gormx#7 问题 1）
+
+- go 地板 1.24.0 → **1.25.0**（`data/crud` 壳的类型别名从 `[T]` 参数化为 `[T, ID comparable]`
+  需要泛型 type alias 语言特性；CI 工具链已为 1.26 无需改动）
+- `data/crud`：`Reader`/`Writer`/`Repository`/`TxRepository`/`Service`/`BaseService` 别名
+  → `[T, ID comparable]`，`NewBaseService[T, ID, CreateReq, UpdateReq]` 转发签名跟随
+  （与源包保持同一类型，双向赋值互通不变）
+- `data/cached`：`CachedRepository[T]` → `[T, ID comparable]`，全部 `CachedOption` 跟随；
+  `WithID(fn func(*T) ID)`；`GetByIDs(ctx, ids []ID) (map[ID]*T, error)`；bloom 门与
+  事务失效清单全链路 ID 泛型
+  - **新增 `WithIDCodec`**：缓存键 ID 段编解码逃生口。缺省编解码支持 string 直通与全部
+    整型（十进制，**与 v0.13 及之前 int64 时代的键格式完全兼容**，存量缓存键零迁移）；
+    其余 comparable 类型（复合键等）必须显式注入，键解码失败 fail-fast 报错（绝不猜测性回源）
+  - 缺省 ID 探测收紧：`GetID()` 方法 / `ID` 字段的类型须与 `ID` **精确一致**
+    （int64 实体 + `ID=int64` 行为不变）
+  - `QueryCache[T]` 不涉及主键，签名不变
+- gormx 地板 v0.5.5 → **v0.6.0**（门面跟版税）
+- 迁移：存量 int64 调用点机械补实参——`cached.NewRepository[User]` → `[User, int64]`、
+  `cached.WithID[User]` → `[User, int64]` 等；string 文本主键 / UUID 实体现已原生可用
+- 新增文本主键端到端测试（string PK：Create/GetByID/UpdateFields 失效/GetByIDs/Delete，
+  走真实 sqlite + SingleFlightCache，钉缺省键编解码往返）
+
 ## [v0.13.0] — 2026-10-18
 
 ### feat(distlock)：壳同步 redisx v0.9.0 分布式防爆破锁 `Lockout`（[#6](https://github.com/oekit/data/issues/6)）

@@ -19,13 +19,13 @@ import (
 // （与点读缓存的 (nil, nil) 双关语义一致，第二次批量查询同类 ID 时
 // 全部走缓存，仓储零调用）。单个 ID 的仓储硬错误不阻断其余 ID，
 // 以 errors.Join 聚合返回——调用方拿到「部分成功 + 聚合错误」。
-func (r *CachedRepository[T]) GetByIDs(ctx context.Context, ids []int64) (map[int64]*T, error) {
-	out := make(map[int64]*T, len(ids))
+func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[ID]*T, error) {
+	out := make(map[ID]*T, len(ids))
 	var errs []error
 
 	// 去重保序（重复 ID 只取一次，map 结果与重复输入语义一致）
-	unique := make([]int64, 0, len(ids))
-	seen := make(map[int64]struct{}, len(ids))
+	unique := make([]ID, 0, len(ids))
+	seen := make(map[ID]struct{}, len(ids))
 	for _, id := range ids {
 		if _, dup := seen[id]; !dup {
 			seen[id] = struct{}{}
@@ -37,7 +37,7 @@ func (r *CachedRepository[T]) GetByIDs(ctx context.Context, ids []int64) (map[in
 	pending := unique
 	if bg, ok := r.entity.(cache.BatchGetter[T]); ok {
 		keys := make([]string, 0, len(unique))
-		keyOf := make(map[int64]string, len(unique))
+		keyOf := make(map[ID]string, len(unique))
 		for _, id := range unique {
 			k := r.idKey(id)
 			keys = append(keys, k)
@@ -65,7 +65,7 @@ func (r *CachedRepository[T]) GetByIDs(ctx context.Context, ids []int64) (map[in
 			if errors.Is(err, crud.ErrNotFound) {
 				continue
 			}
-			errs = append(errs, fmt.Errorf("cached: id %d: %w", id, err))
+			errs = append(errs, fmt.Errorf("cached: id %v: %w", id, err))
 			continue
 		}
 		out[id] = v

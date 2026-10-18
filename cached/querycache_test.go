@@ -12,7 +12,7 @@ import (
 )
 
 // newQueryCachedRepo 组装开启查询缓存的装饰器（版本/整页/单条三个键空间）。
-func newQueryCachedRepo(repo *fakeRepo[user]) *cached.CachedRepository[user] {
+func newQueryCachedRepo(repo *fakeRepo[user]) *cached.CachedRepository[user, int64] {
 	entityQ := dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})
 	page := dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})
 	versions := dcache.NewLocalCache(dcache.LocalConfig[string]{TTL: time.Hour})
@@ -21,7 +21,7 @@ func newQueryCachedRepo(repo *fakeRepo[user]) *cached.CachedRepository[user] {
 	if err != nil {
 		panic(err) // 测试装配，参数固定合法
 	}
-	return cached.NewRepository[user](repo, userCacheFactory, cached.WithQueryCache[user](qc))
+	return cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
 }
 
 // List 走查询缓存：第二次命中；写操作 bump 版本后重建并拿到新数据。
@@ -163,7 +163,7 @@ func TestFingerprintFailurePassesThrough(t *testing.T) {
 	qc.WithFingerprint(func(spec crud.QuerySpec) (string, error) {
 		return "", errors.New("fingerprint unavailable")
 	})
-	cr := cached.NewRepository[user](repo, userCacheFactory, cached.WithQueryCache[user](qc))
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
 
 	for i := 0; i < 2; i++ {
 		if _, _, err := cr.List(ctx, crud.NewQuery()); err != nil {
@@ -206,8 +206,8 @@ func TestVersionReadFailureFallsBack(t *testing.T) {
 		t.Fatalf("NewQueryCache: %v", err)
 	}
 	var reported int
-	cr := cached.NewRepository[user](repo, userCacheFactory, cached.WithQueryCache[user](qc),
-		cached.WithOnError[user](func(ctx context.Context, op string, keys []string, err error) {
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc),
+		cached.WithOnError[user, int64](func(ctx context.Context, op string, keys []string, err error) {
 			if op == "read" {
 				reported++
 			}

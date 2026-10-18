@@ -80,7 +80,7 @@ import (
 )
 
 // rawRepo 是 gormx/crud 的仓储实现（如 gormrepo.NewGormRepository）
-repo := cached.NewRepository[User](rawRepo,
+repo := cached.NewRepository[User, int64](rawRepo,
     // 后端工厂：装饰器把「键→ID 解析、ErrNotFound→(nil,nil)」的回源函数
     // 注入进来；后端形态与 TTL 由你决定——TTL 必须有限，它是删缓存
     // 失败时的唯一安全网
@@ -91,12 +91,12 @@ repo := cached.NewRepository[User](rawRepo,
     },
     // 实体 ID 访问器：写路径据此删实体键。嵌入 gormx.BaseModel 的实体
     // 可省略（自动探测 GetID() 方法 / ID 字段）
-    cached.WithID[User](func(u *User) int64 { return u.ID }),
+    cached.WithID[User, int64](func(u *User) int64 { return u.ID }),
 )
 
 // 直接作为 BaseService 的仓储；Update 自动走事务 + FOR UPDATE 行锁，
 // 提交后失效缓存
-svc := crud.NewBaseService[User, CreateUserReq, UpdateUserReq](repo)
+svc := crud.NewBaseService[User, int64, CreateUserReq, UpdateUserReq](repo)
 svc.SetToEntity(func(r *CreateUserReq) *User { return &User{Name: r.Name} })
 svc.SetUpdateEntity(func(u *User, r *UpdateUserReq) { u.Name = r.Name })
 
@@ -121,9 +121,9 @@ if err != nil {
     return err
 }
 
-repo := cached.NewRepository[User](rawRepo, factory,
-    cached.WithID[User](func(u *User) int64 { return u.ID }),
-    cached.WithQueryCache[User](qc),
+repo := cached.NewRepository[User, int64](rawRepo, factory,
+    cached.WithID[User, int64](func(u *User) int64 { return u.ID }),
+    cached.WithQueryCache[User, int64](qc),
 )
 ```
 
@@ -147,18 +147,22 @@ factory := func(src cache.SourceFunc[User]) cache.CacheAside[User] {
             Prefix: "app:user:", TTL: 30 * time.Minute, Source: src,
         }))
 }
-repo := cached.NewRepository[User](rawRepo, factory, cached.WithID[User](idOf))
+repo := cached.NewRepository[User, int64](rawRepo, factory, cached.WithID[User, int64](idOf))
 ```
 
 ### 选项速查
 
 | 选项 | 作用 |
 |---|---|
-| `WithID` | 实体 ID 访问器；缺省自动探测 `GetID()` 方法（含指针接收者）→ 导出 `ID` 字段 |
+| `WithID` | 实体 ID 访问器（返回类型 = 主键类型 `ID`）；缺省自动探测 `GetID()` 方法（含指针接收者，返回类型须与 `ID` 一致）→ 导出 `ID` 字段（类型同） |
+| `WithIDCodec` | 缓存键中 ID 段的编解码逃生口；缺省支持 string 直通与全部整型（十进制，与 v0.13 及之前 int64 键格式兼容），其余 comparable 类型必须显式注入 |
 | `WithQueryCache` | 开启查询缓存（`*QueryCache[T]`），不传则 GetOne/List 直通 |
 | `WithPrefix` | 键前缀，默认 `cached`；多应用共享 Redis 时用应用名隔离 |
 | `WithType` | 键中类型名段，默认反射类型名（如 `main.User`） |
 | `WithOnError` | 缓存侧异常上报：读降级 `read` / 回填失败 `backfill` / 指纹失败 `fingerprint` / 失效失败 `invalidate`（记日志打点用，不能也不需要参与决策） |
+
+> v0.14.0 起全链路主键类型泛型化（`CachedRepository[T, ID comparable]`，跟随 gormx v0.6.0）：
+> int64 自增迁移只需在实例化点补 `int64` 实参；string 文本主键 / UUID 实体可直接用。
 
 ### 键布局
 
@@ -203,9 +207,9 @@ users, err := repo.GetByIDs(ctx, []int64{1, 2, 3})
 import "github.com/oekit/redisx"
 
 bf, _ := redisCli.NewBloomFilter(ctx, "cached:user:bloom", 0.001, 1_000_000)
-repo := cached.NewRepository[User](rawRepo, factory,
-    cached.WithID[User](idOf),
-    cached.WithBloomFilter[User](bf), // 回源前先问布隆，"绝对不存在"零仓储调用
+repo := cached.NewRepository[User, int64](rawRepo, factory,
+    cached.WithID[User, int64](idOf),
+    cached.WithBloomFilter[User, int64](bf), // 回源前先问布隆，"绝对不存在"零仓储调用
 )
 ```
 
@@ -241,9 +245,9 @@ _ = tlc.Start(ctx)  // 启动订阅循环（无 Bus 时 no-op）
 defer tlc.Close(ctx)
 
 // 组合 cached：写路径 DelBatch 自动双删两级 + 广播驱逐全部实例的 L1
-repo := cached.NewRepository[User](rawRepo, func(src cache.SourceFunc[User]) cache.CacheAside[User] {
+repo := cached.NewRepository[User, int64](rawRepo, func(src cache.SourceFunc[User]) cache.CacheAside[User] {
     return tlcFactoryWith(src) // 工厂内构造上面的两级组合（Source 注入 L2）
-}, cached.WithID[User](idOf))
+}, cached.WithID[User, int64](idOf))
 ```
 
 语义要点：

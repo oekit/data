@@ -2,7 +2,6 @@ package cached
 
 import (
 	"context"
-	"strconv"
 )
 
 // BloomChecker 是布隆过滤器的最小接口（redisx.BloomFilter 天然满足，
@@ -28,23 +27,24 @@ type BloomChecker interface {
 //
 // bloom 读失败 fail-open 放行仓储（fail-closed 会错杀真数据，绝不接受）；
 // 读写异常均经 WithOnError 上报（op="bloom"）。
-func WithBloomFilter[T any](bf BloomChecker) CachedOption[T] {
-	return func(c *config[T]) { c.bloom = bf }
+func WithBloomFilter[T any, ID comparable](bf BloomChecker) CachedOption[T, ID] {
+	return func(c *config[T, ID]) { c.bloom = bf }
 }
 
 // bloomItem 实体 ID 的 bloom 元素形态（实体类型专享 bloom 实例，元素即
-// ID 字符串；跨类型复用同一 bloom 会导致键空间互串）。
-func bloomItem(id int64) string {
-	return strconv.FormatInt(id, 10)
+// ID 键段字符串，与缓存键同一编解码；跨类型复用同一 bloom 会导致键空间
+// 互串）。
+func (r *CachedRepository[T, ID]) bloomItem(id ID) string {
+	return r.encodeID(id)
 }
 
 // bloomGate 点读回源前置门：返回 gated=true 表示 bloom 判定"绝对不存在"
 // （调用方直接走 null marker）；"可能存在"或读失败（fail-open）均放行仓储。
-func (r *CachedRepository[T]) bloomGate(ctx context.Context, id int64) bool {
+func (r *CachedRepository[T, ID]) bloomGate(ctx context.Context, id ID) bool {
 	if r.cfg.bloom == nil {
 		return false
 	}
-	exists, err := r.cfg.bloom.Exists(ctx, bloomItem(id))
+	exists, err := r.cfg.bloom.Exists(ctx, r.bloomItem(id))
 	if err != nil {
 		r.report(ctx, "bloom", nil, err)
 		return false
@@ -55,12 +55,12 @@ func (r *CachedRepository[T]) bloomGate(ctx context.Context, id int64) bool {
 // bloomAdd 把新 born 的实体 ID 写入 bloom（best-effort，失败上报不阻断）。
 // 仅在 Create 路径调用（Update/Delete 不动 bloom——只增不减的过滤器
 // 对已存在元素重复 Add 无害但对语义无益）。
-func (r *CachedRepository[T]) bloomAdd(ctx context.Context, ids []int64) {
+func (r *CachedRepository[T, ID]) bloomAdd(ctx context.Context, ids []ID) {
 	if r.cfg.bloom == nil {
 		return
 	}
 	for _, id := range ids {
-		if err := r.cfg.bloom.Add(ctx, bloomItem(id)); err != nil {
+		if err := r.cfg.bloom.Add(ctx, r.bloomItem(id)); err != nil {
 			r.report(ctx, "bloom", nil, err)
 		}
 	}
