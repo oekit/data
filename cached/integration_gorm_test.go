@@ -33,16 +33,16 @@ func setupGormDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func newGormCachedRepo(t *testing.T, db *gorm.DB) *cached.CachedRepository[gormUser] {
+func newGormCachedRepo(t *testing.T, db *gorm.DB) *cached.CachedRepository[gormUser, int64] {
 	t.Helper()
-	raw := gormrepo.NewGormRepository[gormUser](db)
-	return cached.NewRepository[gormUser](raw,
+	raw := gormrepo.NewGormRepository[gormUser, int64](db)
+	return cached.NewRepository[gormUser, int64](raw,
 		func(src dcache.SourceFunc[gormUser]) dcache.CacheAside[gormUser] {
 			return dcache.NewSingleFlightCache(dcache.NewLocalCache(dcache.LocalConfig[gormUser]{
 				TTL: time.Minute, Source: src, NullTTL: time.Minute,
 			}))
 		},
-		cached.WithID[gormUser](func(u *gormUser) int64 { return u.ID }),
+		cached.WithID[gormUser, int64](func(u *gormUser) int64 { return u.ID }),
 	)
 }
 
@@ -102,7 +102,7 @@ func TestIntegrationGormCachedRepository(t *testing.T) {
 	if _, err = cr.GetByID(ctx, txUser.ID); err != nil {
 		t.Fatalf("warm bob: %v", err)
 	}
-	if err = cr.RunInTx(ctx, func(repo crud.Repository[gormUser]) error {
+	if err = cr.RunInTx(ctx, func(repo crud.Repository[gormUser, int64]) error {
 		return repo.Update(ctx, &gormUser{ID: txUser.ID, Name: "bob2", Email: "b@e.com"})
 	}); err != nil {
 		t.Fatalf("RunInTx: %v", err)
@@ -129,7 +129,7 @@ func TestIntegrationGormTxRollback(t *testing.T) {
 		t.Fatalf("warm: %v", err)
 	}
 
-	err := cr.RunInTx(ctx, func(repo crud.Repository[gormUser]) error {
+	err := cr.RunInTx(ctx, func(repo crud.Repository[gormUser, int64]) error {
 		if err := repo.Update(ctx, &gormUser{ID: u.ID, Name: "carol2"}); err != nil {
 			return err
 		}

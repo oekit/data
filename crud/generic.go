@@ -3,6 +3,7 @@ package crud
 import src "github.com/oekit/gormx/crud"
 
 // NewBaseService 创建通用 CRUD Service。
-func NewBaseService[T any, CreateReq, UpdateReq any](repo Repository[T]) *BaseService[T, CreateReq, UpdateReq] {
-	return src.NewBaseService[T, CreateReq, UpdateReq](repo)
+// ID 为实体主键类型（int64 自增 / string 文本主键等）。
+func NewBaseService[T any, ID comparable, CreateReq, UpdateReq any](repo Repository[T, ID]) *BaseService[T, ID, CreateReq, UpdateReq] {
+	return src.NewBaseService[T, ID, CreateReq, UpdateReq](repo)
 }

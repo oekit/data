@@ -186,7 +186,7 @@ func (f *fakeRepo[T]) BatchDelete(ctx context.Context, ids []int64) error {
 	return nil
 }
 
-func (f *fakeRepo[T]) RunInTx(ctx context.Context, fn func(repo crud.Repository[T]) error) error {
+func (f *fakeRepo[T]) RunInTx(ctx context.Context, fn func(repo crud.Repository[T, int64]) error) error {
 	f.tick("RunInTx")
 	f.log("tx:begin")
 	if err := fn(f); err != nil {
@@ -223,8 +223,8 @@ func userCacheFactory(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
 	}))
 }
 
-func newCachedRepo(repo *fakeRepo[user], opts ...cached.CachedOption[user]) *cached.CachedRepository[user] {
-	return cached.NewRepository[user](repo, userCacheFactory, opts...)
+func newCachedRepo(repo *fakeRepo[user], opts ...cached.CachedOption[user, int64]) *cached.CachedRepository[user, int64] {
+	return cached.NewRepository[user, int64](repo, userCacheFactory, opts...)
 }
 
 // --- RED 批次 1：点读缓存 ---
@@ -287,12 +287,12 @@ func TestCacheReadErrorFallsBackToRepo(t *testing.T) {
 	ctx := context.Background()
 
 	hookErrs := 0
-	cr := cached.NewRepository[user](repo,
+	cr := cached.NewRepository[user, int64](repo,
 		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
 			return &failingCache[user]{err: errors.New("redis down")}
 		},
-		cached.WithID[user](func(u *user) int64 { return u.ID }),
-		cached.WithOnError[user](func(ctx context.Context, op string, keys []string, err error) {
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }),
+		cached.WithOnError[user, int64](func(ctx context.Context, op string, keys []string, err error) {
 			hookErrs++
 			if op != "read" {
 				t.Errorf("hook op = %q, want read", op)
