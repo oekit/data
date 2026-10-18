@@ -1,3 +1,17 @@
+## [v0.13.0] — 2026-10-18
+
+### feat(distlock)：壳同步 redisx v0.9.0 分布式防爆破锁 `Lockout`（[#6](https://github.com/oekit/data/issues/6)）
+- 新增 `Lockout`/`LockoutConfig`（type alias，与源包同一类型）与 `NewLockout`
+  （转发）——redisx#6 落地的 Redis 侧 fail2ban 形态防爆破锁（滑窗失败计数 →
+  锁定 Penalty → Reset），与 concurrency/ratelimit.Lockout 进程内孪生
+- redisx 地板 v0.8.0 → **v0.9.0**（门面跟版税）。根因不是壳漏加而是地板没跟上：
+  `Lockout` 是 v0.9.0 才有的符号，钉 v0.8.0 时直接补转发会 `undefined: src.Lockout`；
+  本地 go.work 把这掩盖了（data 与 redisx 同在 workspace，`go build` 绿），只有
+  `GOWORK=off` 或 CI 才会炸——壳同步改动的验证必须带 `GOWORK=off`
+- matrix-tools shell_sync 门禁同步补「版本地板」前置校验：壳缺符号时先核对
+  go.mod 钉住的源版本是否含该符号，不含则直接给出最早含该符号的 tag 与
+  `go get` 命令，不再把「要先升地板」留给人猜
+
 ## [v0.12.0] — 2026-10-18
 
 ### feat(cache)：壳同步 pkg v0.14.0 动态回填 TTL
