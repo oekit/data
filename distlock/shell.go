@@ -1,5 +1,5 @@
 // Package distlock 是 data 门面子包：分布式锁——RedisLocker + WithLock + 优雅降级
-// + 手动续期 Renew + 分布式信号量 Semaphore。
+// + 手动续期 Renew + 分布式信号量 Semaphore + 分布式防爆破锁 Lockout。
 //
 // re-export 自 github.com/oekit/redisx/distlock：类型为泛型 type alias（与源包**完全同一类型**，
 // 双向赋值互通）；非泛型函数/变量经 var 引用同一函数值。源包新增导出符号时
@@ -12,12 +12,15 @@ type Locker = src.Locker
 type RedisLocker = src.RedisLocker
 type RedisLockerOption = src.RedisLockerOption
 type Semaphore = src.Semaphore
+type Lockout = src.Lockout
+type LockoutConfig = src.LockoutConfig
 
 var ErrLockNotAcquired = src.ErrLockNotAcquired
 var ErrLockTimeout = src.ErrLockTimeout
 var WithLock = src.WithLock
 var NewRedisLocker = src.NewRedisLocker
 var NewSemaphore = src.NewSemaphore
+var NewLockout = src.NewLockout
 var WithAutoRenew = src.WithAutoRenew
 var WithGracefulDegradation = src.WithGracefulDegradation
 var WithMaxAutoRenew = src.WithMaxAutoRenew

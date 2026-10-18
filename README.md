@@ -8,7 +8,7 @@
 ## 安装
 
 ```bash
-go get github.com/oekit/data@v0.12.0
+go get github.com/oekit/data@v0.13.0
 ```
 
 ## 这个仓库做什么
@@ -22,7 +22,7 @@ go get github.com/oekit/data@v0.12.0
 | `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker | [pkg](https://github.com/oekit/pkg) `cache/` |
 | `rediscache` | Redis 分布式缓存（CacheAside 的 Redis 后端） | [redisx](https://github.com/oekit/redisx) `cache/` |
 | `crud` | 框架无关 CRUD Service/仓储 | [gormx](https://github.com/oekit/gormx) `crud/` |
-| `distlock` | 分布式锁（RedisLocker/WithLock/优雅降级） | [redisx](https://github.com/oekit/redisx) `distlock/` |
+| `distlock` | 分布式锁（RedisLocker/WithLock/优雅降级/Renew 续期）+ Semaphore 信号量 + Lockout 防爆破锁 | [redisx](https://github.com/oekit/redisx) `distlock/` |
 | `gormx` | SQL/GORM 增强（Open/审计/OTel 插件/分页/单例仓储） | [gormx](https://github.com/oekit/gormx) |
 | `redisx` | Redis 客户端封装（String/Hash/Set/ZSet/Bloom/Batch/PubSub） | [redisx](https://github.com/oekit/redisx) |
 | `timertask` | 分片定时任务（FNV-1a 分片、心跳续约、at-least-once 可靠投递） | [timertask](https://github.com/oekit/timertask) |
