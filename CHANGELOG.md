@@ -2,6 +2,14 @@
 
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
+## [v0.10.0] — 2026-10-18
+
+- feat(distlock)!: 门面壳同步 redisx v0.8.0 新符号——`Semaphore` 分布式信号量
+  （ZSET 槽位 + slotTTL 过期自愈 + 持有者续期，多实例共享并发上限）与
+  `NewSemaphore` 构造器 re-export（redisx #4）；redisx 地板 v0.7.6 → v0.8.0。
+  RedisLocker 手动续期 `Renew` 经 alias 随源包自动可用（方法随类型，非独立符号）
+- docs: 矩阵总览表重生成（matrix.py concurrency v0.12.0 口径波次遗留）
+
 ## [v0.9.8] — 2026-10-18
 
 - fix(deps): gormx v0.5.5、redisx v0.7.6、timertask v0.1.9 地板对齐（零代码改动；v0.9.7 因代理抖动未带上，本版补齐）

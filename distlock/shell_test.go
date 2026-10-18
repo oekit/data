@@ -3,6 +3,7 @@ package distlock_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oekit/data/distlock"
 	"github.com/oekit/data/internal/testsame"
@@ -20,4 +21,10 @@ func TestTypeIdentity(t *testing.T) {
 
 	l := distlock.NewRedisLocker(nil)
 	testsame.Assert[redisxdistlock.Locker](l) // 源接口满足
+
+	// Semaphore alias 同一性：壳构造结果可直接赋给源包指针类型（编译期检查）。
+	semIdentity(distlock.NewSemaphore(nil, "quota", 1, time.Second))
 }
+
+// semIdentity 仅供编译期 alias 同一性断言：实参必须可赋给源包指针类型。
+func semIdentity(_ *redisxdistlock.Semaphore) {}
