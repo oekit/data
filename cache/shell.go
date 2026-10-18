@@ -17,6 +17,9 @@ type Option = src.Option
 type SingleFlightCache[T any] = src.SingleFlightCache[T]
 type SourceFunc[T any] = src.SourceFunc[T]
 
+// SourceFuncWithTTL 携带动态回填 TTL 的数据获取函数（pkg v0.14.0，pkg#11）。
+type SourceFuncWithTTL[T any] = src.SourceFuncWithTTL[T]
+
 var HashKey = src.HashKey
 var Key = src.Key
 var TenantKey = src.TenantKey

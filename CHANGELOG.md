@@ -1,6 +1,10 @@
-# Changelog — oekit/data
+## [v0.12.0] — 2026-10-18
 
-由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
+### feat(cache)：壳同步 pkg v0.14.0 动态回填 TTL
+- 新增 `SourceFuncWithTTL`（type alias，与源包同一类型）——动态回填 TTL 与
+  stale-if-error 语义随 pkg v0.14.0（pkg#11，data#4 的本账）在 pkg/cache 落地，
+  LocalCache 经 `LocalConfig{SourceWithTTL, StaleIfError, OnStale}` 使用
+- pkg 地板 v0.13.0 → v0.14.0（门面跟版税）
 
 ## [v0.11.0] — 2026-10-18
 
