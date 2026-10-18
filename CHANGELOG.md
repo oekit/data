@@ -2,6 +2,14 @@
 
 由 ekit v0.34.0（git.enjoye.top/enjoydream/ekit，冻结维护）拆分而来。所有 notable 变更记录如下。
 
+## [v0.11.0] — 2026-10-18
+
+### feat(cachetest)：壳同步 pkg v0.13.0 假时钟 TTL 套件
+- 新增 `FakeClock`（type alias）/`NewFakeClock`/`ClockFactory[T]`（alias）/
+  `RunWithClock`（转发）——与源包**完全同一类型**，双向赋值互通
+- 跟随 pkg 地板 v0.11.0 → v0.13.0（门面跟版税；shell_sync 门禁抓漏，pkg#9
+  cachetest RunWithClock 落地后源仓新增符号未同步）
+
 ## [v0.10.0] — 2026-10-18
 
 - feat(distlock)!: 门面壳同步 redisx v0.8.0 新符号——`Semaphore` 分布式信号量
