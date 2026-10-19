@@ -1,3 +1,30 @@
+## [v0.15.0] — 2026-10-19
+
+### BREAKING: timertask 壳跟随源仓 v0.2.0——Redis 形态迁出，移除 4 个转发符号
+
+- `timertask` 壳移除 `RedisBackend` / `ShardManager` / `NewRedisBackend` / `NewShardManager`
+  四个转发符号：源仓 timertask v0.2.0 起把 Redis 后端迁至嵌套模块
+  `github.com/oekit/timertask/redis`（根包不再引 go-redis，纯 stdlib 嵌入式场景可用）。
+  需要 Redis 形态请直接依赖 `github.com/oekit/timertask/redis`
+- `timertask` 壳新增 `BackendConfig` / `ResolveOptions`（源仓 v0.2.0 新增——
+  嵌套后端模块经该结构接收选项解析结果，下游选项写法 `timertask.WithWorkers(4)` 不变）
+
+### feat(cache)：补 pkg v0.16.0 的 LocalCache 可选形状
+
+- `cache` 壳新增 `EvictPolicy` / `Sweeper` / `HitGetter` 三个类型别名
+  （源仓 pkg v0.16.0：NoBackgroundSweep 无后台清扫 goroutine + CloneOnRead
+  读命中返回副本 + EvictPolicy 可选 LRU + GetEx 命中标志；新能力在源仓以可选接口
+  `Sweeper`/`HitGetter` 外置，未加入 `Cache[T]`，其它后端实现不受影响）
+
+### feat(cachetest)：补 pkg v0.16.0 的 5 个契约套件入口
+
+- `cachetest` 壳新增 `RunSweepWithClock` / `RunHitWithClock` / `RunReadIsolation` /
+  `RunReadPromotion` / `RunNoBackgroundGoroutine`（契约套件由 8 场景扩至 13 场景）
+
+### build
+
+- 矩阵内依赖地板：pkg v0.15.1 → v0.16.0、timertask v0.1.9 → v0.2.0
+
 ## [v0.14.1] — 2026-10-19
 
 - build: 矩阵内依赖地板对齐（align_floors 不动点）：concurrency v0.5.4 → v0.17.0、logx v0.6.0 → v0.7.0、pkg v0.14.0 → v0.15.1
