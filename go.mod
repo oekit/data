@@ -4,10 +4,10 @@ go 1.25.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/oekit/concurrency v0.5.4
+	github.com/oekit/concurrency v0.17.0
 	github.com/oekit/gormx v0.6.0
-	github.com/oekit/logx v0.6.0
-	github.com/oekit/pkg v0.14.0
+	github.com/oekit/logx v0.7.0
+	github.com/oekit/pkg v0.15.1
 	github.com/oekit/redisx v0.9.0
 	github.com/oekit/timertask v0.1.9
 	github.com/redis/go-redis/v9 v9.22.0
