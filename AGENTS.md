@@ -1,7 +1,7 @@
 # AGENTS.md — oekit/data
 
 > 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs 批量点读 MGet 快路径/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；all/ 聚合模块已废弃 retract
-> 当前版本：`v0.14.1` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
+> 当前版本：`v0.15.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
 `./`、`cache/`、`cached/`、`cachetest/`、`crud/`、`distlock/`、`gormx/`、`internal/testsame/`、`rediscache/`、`redisx/`、`timertask/`、`twolevel/`
