@@ -20,6 +20,15 @@ type SourceFunc[T any] = src.SourceFunc[T]
 // SourceFuncWithTTL 携带动态回填 TTL 的数据获取函数（pkg v0.14.0，pkg#11）。
 type SourceFuncWithTTL[T any] = src.SourceFuncWithTTL[T]
 
+// EvictPolicy 淘汰策略（pkg v0.16.0，pkg#25）——LocalConfig.EvictPolicy 取值。
+type EvictPolicy = src.EvictPolicy
+
+// Sweeper 可选能力接口：手动清扫过期条目（pkg v0.16.0，pkg#25）。
+type Sweeper = src.Sweeper
+
+// HitGetter 可选能力接口：取值时区分「未命中」与「命中但值为 nil」（pkg v0.16.0，pkg#25）。
+type HitGetter[T any] = src.HitGetter[T]
+
 var HashKey = src.HashKey
 var Key = src.Key
 var TenantKey = src.TenantKey

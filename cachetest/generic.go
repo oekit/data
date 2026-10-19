@@ -31,3 +31,33 @@ type ClockFactory[T any] = src.ClockFactory[T]
 func RunWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
 	src.RunWithClock(t, c, factory)
 }
+
+// RunSweepWithClock 跑「手动清扫」契约（pkg v0.16.0，pkg#25）——实现须提供
+// cache.Sweeper 能力（Sweep(ctx) int），未提供即判失败。
+func RunSweepWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
+	src.RunSweepWithClock(t, c, factory)
+}
+
+// RunHitWithClock 跑「命中语义」契约（pkg v0.16.0，pkg#25）——实现须提供
+// cache.HitGetter 能力（GetEx(ctx) (*T, bool, error)），未提供即判失败。
+func RunHitWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
+	src.RunHitWithClock(t, c, factory)
+}
+
+// RunReadIsolation 跑「读命中返回副本」契约（pkg v0.16.0，pkg#25）——调用方
+// 改写 Get 返回值不得污染缓存内部条目。
+func RunReadIsolation[T any](t *testing.T, c Contract[T], factory func(t *testing.T, source pkgcache.SourceFunc[T]) pkgcache.CacheAside[T]) {
+	src.RunReadIsolation(t, c, factory)
+}
+
+// RunReadPromotion 跑「读命中提升顺序（LRU）」契约（pkg v0.16.0，pkg#25）——
+// factory 须构造容量为 capacity 的 LRU 缓存，场景能区分 FIFO 与 LRU。
+func RunReadPromotion[T any](t *testing.T, c Contract[T], capacity int, factory func(t *testing.T, source pkgcache.SourceFunc[T]) pkgcache.CacheAside[T]) {
+	src.RunReadPromotion(t, c, capacity, factory)
+}
+
+// RunNoBackgroundGoroutine 跑「不起后台 goroutine」契约（pkg v0.16.0，pkg#25）——
+// 构造缓存不得在进程内新增 goroutine。
+func RunNoBackgroundGoroutine[T any](t *testing.T, factory func(t *testing.T, source pkgcache.SourceFunc[T]) pkgcache.CacheAside[T]) {
+	src.RunNoBackgroundGoroutine(t, factory)
+}

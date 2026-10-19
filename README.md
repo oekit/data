@@ -19,14 +19,14 @@ go get github.com/oekit/data@v0.14.1
 
 | 门面子包 | 能力 | 实现 |
 |---|---|---|
-| `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker | [pkg](https://github.com/oekit/pkg) `cache/` |
+| `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker；LocalCache 可选形状（pkg v0.16.0 起）：NoBackgroundSweep 无后台清扫 goroutine + CloneOnRead 读命中返回副本 + EvictPolicy 可选 LRU + GetEx 命中标志（新增能力以可选接口 Sweeper/HitGetter 外置，不破坏既有 Cache 接口） | [pkg](https://github.com/oekit/pkg) `cache/` |
 | `rediscache` | Redis 分布式缓存（CacheAside 的 Redis 后端） | [redisx](https://github.com/oekit/redisx) `cache/` |
 | `crud` | 框架无关 CRUD Service/仓储 | [gormx](https://github.com/oekit/gormx) `crud/` |
 | `distlock` | 分布式锁（RedisLocker/WithLock/优雅降级/Renew 续期）+ Semaphore 信号量 + Lockout 防爆破锁 | [redisx](https://github.com/oekit/redisx) `distlock/` |
 | `gormx` | SQL/GORM 增强（Open/审计/OTel 插件/分页/单例仓储） | [gormx](https://github.com/oekit/gormx) |
 | `redisx` | Redis 客户端封装（String/Hash/Set/ZSet/Bloom/Batch/PubSub） | [redisx](https://github.com/oekit/redisx) |
-| `timertask` | 分片定时任务（FNV-1a 分片、心跳续约、at-least-once 可靠投递） | [timertask](https://github.com/oekit/timertask) |
-| `cachetest` | CacheAside 实现契约测试套件（8 场景） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` |
+| `timertask` | 分片定时任务——本地后端（LocalBackend）+ 选项集 + `BackendConfig`/`ResolveOptions`；**Redis 形态自 timertask v0.2.0 起迁至嵌套模块** `timertask/redis`（本壳不再转发 RedisBackend/ShardManager，需 Redis 形态请直接依赖该嵌套模块） | [timertask](https://github.com/oekit/timertask) |
+| `cachetest` | CacheAside 实现契约测试套件（13 场景——pkg v0.16.0 起新增 Sweep 手动清扫 / 命中标志 / 读隔离 / 读提升 / 无后台 goroutine 五项） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` |
 
 仅有的两个例外是本仓原生子包：**缓存读写编排**与**两级缓存组合**：
 
