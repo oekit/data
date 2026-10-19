@@ -22,6 +22,10 @@
 - 新增文本主键端到端测试（string PK：Create/GetByID/UpdateFields 失效/GetByIDs/Delete，
   走真实 sqlite + SingleFlightCache，钉缺省键编解码往返）
 
+## [v0.14.1] — 2026-10-19
+
+- build: 矩阵内依赖地板对齐（align_floors 不动点）：concurrency v0.5.4 → v0.17.0、logx v0.6.0 → v0.7.0、pkg v0.14.0 → v0.15.1
+
 ## [v0.13.0] — 2026-10-18
 
 ### feat(distlock)：壳同步 redisx v0.9.0 分布式防爆破锁 `Lockout`（[#6](https://github.com/oekit/data/issues/6)）
