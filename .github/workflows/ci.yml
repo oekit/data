@@ -18,4 +18,4 @@ jobs:
     with:
       # 门面仓（v0.5.0 起）无嵌套模块，根模块 ./... 覆盖全部子包；
       # go 1.26（与依赖 pkg/redisx/timertask 的 go directive 对齐）
-      go-version: '1.26'
+      go-version: '1.24'
