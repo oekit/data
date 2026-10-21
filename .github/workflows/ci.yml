@@ -17,5 +17,7 @@ jobs:
     uses: oekit/.github/.github/workflows/go-ci.yml@main
     with:
       # 门面仓（v0.5.0 起）无嵌套模块，根模块 ./... 覆盖全部子包；
-      # go 1.26（与依赖 pkg/redisx/timertask 的 go directive 对齐）
-      go-version: '1.24'
+      # go 1.26——依赖地板随上游要求上移（go-redis v9.23.0 / x/sys v0.48.0 均要求 go>=1.26），
+      # 且 CI 的 go-version 必须与 go.mod 的 go 指令**成对**（否则最低支持版本从未被验证）；
+      # 业务层地板口径见 matrix-tools（基础层钉 1.24 / 业务层 1.24-1.26 均可 / tracing 豁免）。
+      go-version: '1.26'
