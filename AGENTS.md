@@ -1,6 +1,6 @@
 # AGENTS.md — oekit/data
 
-> 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs 批量点读 MGet 快路径/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；v0.15.0 起壳跟随源仓演进——cache 壳补 LocalCache 可选形状（EvictPolicy/Sweeper/HitGetter）、cachetest 壳补 5 个契约套件入口（套件 8 → 13 场景）、timertask 壳的 Redis 形态随源仓 v0.2.0 迁至嵌套模块 timertask/redis（壳不再转发 RedisBackend/ShardManager，Redis 形态直接依赖该嵌套模块）；all/ 聚合模块已废弃 retract
+> 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs 批量点读 MGet 快路径/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；v0.15.0 起壳跟随源仓演进——cache 壳补 LocalCache 可选形状（EvictPolicy/Sweeper/HitGetter）、cachetest 壳补 5 个契约套件入口（套件 8 → 13 场景）、v0.18.0 起 cache 壳补 PeekGetter 别名 + cachetest 壳补 2 个 stale-if-error 契约入口（套件 13 → 15 场景）、timertask 壳的 Redis 形态随源仓 v0.2.0 迁至嵌套模块 timertask/redis（壳不再转发 RedisBackend/ShardManager，Redis 形态直接依赖该嵌套模块）；all/ 聚合模块已废弃 retract
 > 当前版本：`v0.18.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
