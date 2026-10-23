@@ -61,3 +61,17 @@ func RunReadPromotion[T any](t *testing.T, c Contract[T], capacity int, factory 
 func RunNoBackgroundGoroutine[T any](t *testing.T, factory func(t *testing.T, source pkgcache.SourceFunc[T]) pkgcache.CacheAside[T]) {
 	src.RunNoBackgroundGoroutine(t, factory)
 }
+
+// RunStaleIfErrorWithClock 跑「stale-if-error」契约（pkg v0.23.0，pkg#72）——
+// 回源失败时回退已过期的历史真值（fail-open），不得把回源错误原样抛出。
+// 钉住的是「装饰器不得改变内层语义」：SingleFlightCache 包装 LocalCache 时，
+// 其前置检查若走 Get（惰性删除路径）会把 stale 兜底需要的那份过期真值删掉。
+func RunStaleIfErrorWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
+	src.RunStaleIfErrorWithClock(t, c, factory)
+}
+
+// RunStaleIfErrorRepeatedWithClock 跑「stale 兜底可反复生效」契约
+// （pkg v0.23.0，pkg#72）——兜底值必须留在表内，否则只生效第一次。
+func RunStaleIfErrorRepeatedWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
+	src.RunStaleIfErrorRepeatedWithClock(t, c, factory)
+}
