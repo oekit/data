@@ -29,6 +29,11 @@ type Sweeper = src.Sweeper
 // HitGetter 可选能力接口：取值时区分「未命中」与「命中但值为 nil」（pkg v0.16.0，pkg#25）。
 type HitGetter[T any] = src.HitGetter[T]
 
+// PeekGetter 可选能力接口：非删除式读取——读到过期条目只算不命中、不删除它
+// （pkg v0.23.0，pkg#72）。stale-if-error 兜底需要那份过期真值留在表内；
+// 装饰器的前置检查若走 Get（惰性删除路径）会把它删掉 ⇒ 兜底失效。
+type PeekGetter[T any] = src.PeekGetter[T]
+
 var HashKey = src.HashKey
 var Key = src.Key
 var TenantKey = src.TenantKey
