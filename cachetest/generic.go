@@ -75,3 +75,17 @@ func RunStaleIfErrorWithClock[T any](t *testing.T, c Contract[T], factory ClockF
 func RunStaleIfErrorRepeatedWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
 	src.RunStaleIfErrorRepeatedWithClock(t, c, factory)
 }
+
+// RunStatsWithClock 跑「观测计数」契约（pkg v0.24.0，pkg#76）——实现须提供
+// cache.StatsProvider 能力（Stats() cache.Stats）；计数口径自洽（每次读恰好
+// 计入命中或未命中之一）且单调不减。
+func RunStatsWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
+	src.RunStatsWithClock(t, c, factory)
+}
+
+// RunSourceInjectionWithClock 跑「按调用注入回源」契约（pkg v0.24.0，pkg#77）
+// ——实现须提供 cache.SourceInjector 能力；钉住注入生效 / 命中不回源 /
+// 注入为 nil 退回构造期 source / 动态 TTL 生效 / 显式 ttl 覆盖动态 TTL。
+func RunSourceInjectionWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
+	src.RunSourceInjectionWithClock(t, c, factory)
+}

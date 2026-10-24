@@ -34,6 +34,18 @@ type HitGetter[T any] = src.HitGetter[T]
 // 装饰器的前置检查若走 Get（惰性删除路径）会把它删掉 ⇒ 兜底失效。
 type PeekGetter[T any] = src.PeekGetter[T]
 
+// Stats 观测计数快照（pkg v0.24.0，pkg#76）——命中/未命中/容量淘汰/TTL 过期
+// 回收计数。要暴露缓存指标的仓不必自写一份带计数的 TTL 缓存。
+type Stats = src.Stats
+
+// StatsProvider 可选能力接口：暴露缓存的观测计数快照（pkg v0.24.0，pkg#76）。
+type StatsProvider = src.StatsProvider
+
+// SourceInjector 可选能力接口：按调用注入回源函数（pkg v0.24.0，pkg#77）——
+// 回源依赖 key / 依赖调用上下文的缓存（token/凭据/租户级）不必在缓存外再包
+// 一层 key→source 注册表，且单飞语义不变。
+type SourceInjector[T any] = src.SourceInjector[T]
+
 var HashKey = src.HashKey
 var Key = src.Key
 var TenantKey = src.TenantKey

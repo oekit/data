@@ -44,6 +44,30 @@ func TestOptionalCapabilityIdentity(t *testing.T) {
 	testsame.Assert[pkgcache.EvictPolicy](cache.EvictPolicy(0))
 }
 
+// TestObservabilityCapabilityIdentity pkg v0.24.0 新增的可选能力类型
+// （pkg#76 的 StatsProvider、pkg#77 的 SourceInjector）：门面 alias 与源包
+// 类型完全同一（双向赋值）——门面只做 alias 与转发，类型同一性不能破。
+func TestObservabilityCapabilityIdentity(t *testing.T) {
+	fwd := pkgcache.NewLocalCache(pkgcache.LocalConfig[int]{})
+	defer func() { _ = fwd.Close(context.Background()) }()
+
+	// 源包接口 → 门面接口。
+	var spSrc pkgcache.StatsProvider = fwd
+	testsame.Assert[cache.StatsProvider](spSrc)
+	// 门面接口 → 源包接口。
+	var spShell cache.StatsProvider = fwd
+	testsame.Assert[pkgcache.StatsProvider](spShell)
+
+	var siSrc pkgcache.SourceInjector[int] = fwd
+	testsame.Assert[cache.SourceInjector[int]](siSrc)
+	var siShell cache.SourceInjector[int] = fwd
+	testsame.Assert[pkgcache.SourceInjector[int]](siShell)
+
+	// Stats 非泛型：两个方向的赋值都成立即同一类型。
+	testsame.Assert[cache.Stats](pkgcache.Stats{})
+	testsame.Assert[pkgcache.Stats](cache.Stats{})
+}
+
 // TestGetOrLoadSmoke 门面入口行为冒烟。
 func TestGetOrLoadSmoke(t *testing.T) {
 	c := cache.NewLocalCache(cache.LocalConfig[int]{
