@@ -1,3 +1,7 @@
+## [v0.19.0] — 2026-10-24
+
+- feat(cache): 门面同步 pkg v0.24.0 的 Stats 观测面与按调用注入回源——cache 壳补 type alias Stats/StatsProvider/SourceInjector[T]，cachetest 壳补 RunStatsWithClock 与 RunSourceInjectionWithClock 两条契约入口；地板 pkg v0.23.1 → v0.24.0（门面跟版税，源仓 pkg#76/#77）
+
 ## [v0.18.0] — 2026-10-24
 
 - feat(cache): 门面同步 pkg v0.23.x 的 PeekGetter 别名与 2 个 stale-if-error 契约入口（契约套件 13 → 15 场景）；地板 pkg v0.16.0 → v0.23.1（门面跟版税，源仓 pkg#72/#74）
