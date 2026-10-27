@@ -17,5 +17,6 @@ type RedisConfig = src.RedisConfig
 
 var NewClient = src.NewClient
 var NewClientFromAddr = src.NewClientFromAddr
+var NewClientFromClient = src.NewClientFromClient
 var NewClientFromConfig = src.NewClientFromConfig
 var WithPrefix = src.WithPrefix
