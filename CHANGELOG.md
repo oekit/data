@@ -1,3 +1,7 @@
+## [v0.19.2] — 2026-10-28
+
+- feat(redisx): 门面壳补 NewClientFromClient（跟 redisx v0.10.5 新导出），并抬 redisx 地板 v0.9.0 → v0.10.5
+
 ## [v0.19.1] — 2026-10-28
 
 - build(deps): 依赖地板对齐 gormx v0.6.0 → v0.6.2，消费方拿不到 gormx v0.6.2 的 IsUniqueViolation sqlite 分支
