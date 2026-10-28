@@ -34,6 +34,15 @@ func WithBloomFilter[T any, ID comparable](bf BloomChecker) CachedOption[T, ID] 
 // bloomItem 实体 ID 的 bloom 元素形态（实体类型专享 bloom 实例，元素即
 // ID 键段字符串，与缓存键同一编解码；跨类型复用同一 bloom 会导致键空间
 // 互串）。
+//
+// **刻意不按作用域切分**：bloom 只回答"可能存在/绝对不存在"（提示器），
+// **不缓存数据** ⇒ 跨租户共享元素不会造成数据泄漏（判"可能存在"只是多查
+// 一次仓储，判"绝对不存在"也只是少查一次）。而按作用域切分会让**每个租户
+// 各自承担存量预热义务**（见 WithBloomFilter 的预热要求）⇒ 放大"误判不
+// 存在"的风险（某租户的存量行没进它自己的 bloom ⇒ 点读被 gate 成 NotFound）。
+//
+// 真正需要按作用域隔离的是**缓存键**（null marker 落在其中），那由
+// WithScopeKey 保证。
 func (r *CachedRepository[T, ID]) bloomItem(id ID) string {
 	return r.encodeID(id)
 }

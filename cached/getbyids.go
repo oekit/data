@@ -35,25 +35,32 @@ func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[I
 
 	// 快路径：MGet 拿真值，缺席键留给 GetOrLoad（marker 短路/回源回填）
 	pending := unique
-	if bg, ok := r.entity.(cache.BatchGetter[T]); ok {
-		keys := make([]string, 0, len(unique))
-		keyOf := make(map[ID]string, len(unique))
-		for _, id := range unique {
-			k := r.idKey(id)
-			keys = append(keys, k)
-			keyOf[id] = k
-		}
-		hits, err := bg.MGet(ctx, keys...)
-		if err != nil {
-			// 批量读失败降级逐 ID（缓存后端故障不放大为批量失败）
-			r.report(ctx, "read", keys, err)
-		} else {
-			pending = pending[:0]
+	scope, scopeErr := r.scope(ctx)
+	if scopeErr != nil {
+		// 作用域解析失败 ⇒ 跳过批量快路径，逐个 GetByID（各自降级直查仓储）
+		r.report(ctx, "scope", nil, scopeErr)
+	}
+	if scopeErr == nil {
+		if bg, ok := r.entity.(cache.BatchGetter[T]); ok {
+			keys := make([]string, 0, len(unique))
+			keyOf := make(map[ID]string, len(unique))
 			for _, id := range unique {
-				if v, hit := hits[keyOf[id]]; hit {
-					out[id] = v
-				} else {
-					pending = append(pending, id)
+				k := r.idKey(scope, id)
+				keys = append(keys, k)
+				keyOf[id] = k
+			}
+			hits, err := bg.MGet(ctx, keys...)
+			if err != nil {
+				// 批量读失败降级逐 ID（缓存后端故障不放大为批量失败）
+				r.report(ctx, "read", keys, err)
+			} else {
+				pending = pending[:0]
+				for _, id := range unique {
+					if v, hit := hits[keyOf[id]]; hit {
+						out[id] = v
+					} else {
+						pending = append(pending, id)
+					}
 				}
 			}
 		}
