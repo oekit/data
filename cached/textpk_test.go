@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	dcache "github.com/oekit/data/cache"
 	"github.com/oekit/data/cached"
 	"github.com/oekit/gormx/crud"
 	"github.com/oekit/gormx/gormrepo"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
