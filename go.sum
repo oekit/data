@@ -36,8 +36,8 @@ github.com/ncruces/go-strftime v1.1.0 h1:vtPmPWMkb539RGV9WpWT9EwJGvrOCKvMNI4obWL
 github.com/ncruces/go-strftime v1.1.0/go.mod h1:yVaq7iwCN09vHRrKBrrflXT0M9tTMG2KmZ9Fj7xeG/g=
 github.com/oekit/concurrency v0.17.0 h1:pYepgeTVhNLK9h7D0HzwfAKEWEREQ/7ewA+zCCiG/Uw=
 github.com/oekit/concurrency v0.17.0/go.mod h1:K5wV2UwkfvYUQFOawBCmaE29AGhWTGs3hsKu2vvKw4Y=
-github.com/oekit/gormx v0.6.2 h1:rS6koT+q1uKrxLj2g5C6mZPMPw8J5EF+kfrA9Ss20iY=
-github.com/oekit/gormx v0.6.2/go.mod h1:zxwvcsOx7LivyLxSxLmD/1Z1+mc1C9SL7tJ0DnNARRQ=
+github.com/oekit/gormx v0.6.4 h1:W8kY/A5ol7c5XnDvISpIRoA1iXjKLgN9lqUftwkjxUM=
+github.com/oekit/gormx v0.6.4/go.mod h1:eGSyo3QIuLF/sjKBNwf1iYPEmN1osC/if5uLt/RotwE=
 github.com/oekit/logx v0.7.0 h1:CHyzcS6uR2Gq2JkOIqW0b04mHhu48+4ESm7dQvlk1RA=
 github.com/oekit/logx v0.7.0/go.mod h1:x3wn+/0aYDrcs7EavWWAz8qUbwtysTB/gvuLZxtl2B0=
 github.com/oekit/pkg v0.24.0 h1:hKb67KRtUnDXWlo22n1v4vj+0FE4AgibNyDvu5O3+rA=
