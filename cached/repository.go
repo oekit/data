@@ -31,15 +31,16 @@ type OnErrorFunc func(ctx context.Context, op string, keys []string, err error)
 
 // config 是装饰器配置。
 type config[T any, ID comparable] struct {
-	repo    crud.Repository[T, ID]
-	prefix  string
-	typ     string
-	idFn    func(*T) ID
-	encode  func(ID) string
-	decode  func(string) (ID, error)
-	qc      *QueryCache[T]
-	bloom   BloomChecker
-	onError OnErrorFunc
+	repo     crud.Repository[T, ID]
+	prefix   string
+	typ      string
+	idFn     func(*T) ID
+	encode   func(ID) string
+	decode   func(string) (ID, error)
+	qc       *QueryCache[T]
+	bloom    BloomChecker
+	onError  OnErrorFunc
+	scopeKey ScopeKeyFunc
 }
 
 // CachedOption 配置 CachedRepository（命名避开裸 Option——多包
@@ -88,6 +89,39 @@ func WithOnError[T any, ID comparable](fn OnErrorFunc) CachedOption[T, ID] {
 	return func(c *config[T, ID]) { c.onError = fn }
 }
 
+// ScopeKeyFunc 按调用上下文解析「作用域键」（租户/用户/分区…）。
+//
+// 返回 error 时**整个操作失败**：作用域解析不出来却继续用共享键，正是
+// 跨作用域串数据的根因。
+type ScopeKeyFunc func(ctx context.Context) (string, error)
+
+// WithScopeKey 注入作用域键解析器：作用域段进入**每一个**缓存键与布隆元素。
+//
+// # 为什么需要
+//
+// 缓存键原本只有「前缀:类型:id:N」三段，**没有租户/作用域维度**。底层仓储
+// 若是按租户隔离的（PostgreSQL RLS / 每租户连接 / 每租户库），同一个 ID 在
+// 不同租户下是**不同的行**，却共用同一个缓存键 ⇒
+//
+//   - **跨租户读泄漏**：A 租户命中 B 租户写入的缓存条目；
+//   - **「不存在」污染**：A 租户下不存在的 ID 写下的 null marker，让 B 租户
+//     明明有这行却命中 marker 报 NotFound。
+//
+// 启用后键形态为「前缀:类型:scope:<作用域>:id:N」，作用域由 ctx 解析 ⇒
+// **一个仓储实例可服务多个租户**（此前只能每租户一个实例 + 每租户一个前缀）。
+//
+// # 约束
+//
+//   - 作用域解析失败 ⇒ 操作失败（读路径降级直查仓储；写路径跳过失效并经
+//     onError 上报，TTL 兜底），**绝不**回落到无作用域的共享键；
+//   - 作用域键不得为空串——空串会被拒绝（否则等于没开隔离）；确实没有
+//     作用域时请返回一个占位值（如 "-"）。
+//
+// 未启用时（默认）键形态与历史完全一致（无 scope 段），行为不变。
+func WithScopeKey[T any, ID comparable](fn ScopeKeyFunc) CachedOption[T, ID] {
+	return func(c *config[T, ID]) { c.scopeKey = fn }
+}
+
 // CachedRepository 是带缓存编排的仓储装饰器，实现 crud.Repository[T, ID]
 // 与 crud.TxRepository[T, ID]。可直接作为 crud.NewBaseService 的仓储入参
 // ——事务路径经类型断言自动启用，失效在提交后执行。
@@ -129,8 +163,40 @@ func defaultTypeName[T any]() string {
 
 // --- 键空间与 ID 编解码 ---
 
-func (r *CachedRepository[T, ID]) idKeyPrefix() string {
-	return r.cfg.prefix + ":" + r.cfg.typ + ":id:"
+// scope 解析当前调用的作用域键。
+//
+// 未启用作用域隔离时返回空串（键形态与历史一致）。启用后：
+//   - 解析出错 ⇒ 返回错误（**不**回落共享键）；
+//   - 解析出空串 ⇒ 返回错误（空串等于没开隔离）。
+func (r *CachedRepository[T, ID]) scope(ctx context.Context) (string, error) {
+	if r.cfg.scopeKey == nil {
+		return "", nil
+	}
+	s, err := r.cfg.scopeKey(ctx)
+	if err != nil {
+		return "", fmt.Errorf("cached: 解析作用域键失败: %w", err)
+	}
+	if s == "" {
+		return "", errors.New("cached: 作用域键为空——作用域隔离已启用但未解析出作用域（拒绝回落共享键）")
+	}
+	return s, nil
+}
+
+// scopeSegment 作用域段（无作用域时为空串）。
+func scopeSegment(scope string) string {
+	if scope == "" {
+		return ""
+	}
+	return "scope:" + scope + ":"
+}
+
+// typePrefix 类型段前缀（键的公共部分）。
+func (r *CachedRepository[T, ID]) typePrefix() string {
+	return r.cfg.prefix + ":" + r.cfg.typ + ":"
+}
+
+func (r *CachedRepository[T, ID]) idKeyPrefix(scope string) string {
+	return r.typePrefix() + scopeSegment(scope) + "id:"
 }
 
 // encodeID ID → 键段字符串。缺省 fmt %v（int64 十进制、string 直通，
@@ -178,24 +244,29 @@ func (r *CachedRepository[T, ID]) decodeID(s string) (ID, error) {
 	}
 }
 
-func (r *CachedRepository[T, ID]) idKey(id ID) string {
-	return r.idKeyPrefix() + r.encodeID(id)
+func (r *CachedRepository[T, ID]) idKey(scope string, id ID) string {
+	return r.idKeyPrefix(scope) + r.encodeID(id)
 }
 
-func (r *CachedRepository[T, ID]) verKey() string {
-	return r.cfg.prefix + ":" + r.cfg.typ + ":ver"
+func (r *CachedRepository[T, ID]) verKey(scope string) string {
+	return r.typePrefix() + scopeSegment(scope) + "ver"
 }
 
-func (r *CachedRepository[T, ID]) queryKey(kind, ver, fp string) string {
-	return r.cfg.prefix + ":" + r.cfg.typ + ":q:" + kind + ":" + ver + ":" + fp
+func (r *CachedRepository[T, ID]) queryKey(scope, kind, ver, fp string) string {
+	return r.typePrefix() + scopeSegment(scope) + "q:" + kind + ":" + ver + ":" + fp
 }
-
-// --- 回源函数（注入缓存后端） ---
 
 // source 是注入后端缓存的 SourceFunc：键 → ID → 仓储回源，
 // ErrNotFound 翻译为 (nil, nil) 触发 null marker（防穿透）。
 func (r *CachedRepository[T, ID]) source(ctx context.Context, key string) (*T, error) {
-	rest, ok := strings.CutPrefix(key, r.idKeyPrefix())
+	// 作用域段的位置随作用域而变 ⇒ 前缀要按**当前作用域**算。
+	// 作用域由 ctx 解析（后端回源时透传同一个 ctx，见 pkg/cache 的
+	// SourceFunc 契约）⇒ 这里解析出的作用域与建键时一致。
+	scope, err := r.scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rest, ok := strings.CutPrefix(key, r.idKeyPrefix(scope))
 	if !ok {
 		return nil, fmt.Errorf("cached: key %q 不属于类型 %q 的 ID 键空间", key, r.cfg.typ)
 	}
@@ -228,7 +299,14 @@ func (r *CachedRepository[T, ID]) source(ctx context.Context, key string) (*T, e
 // 仓储故障时每个并发等待者各降级查一次库，等于击穿到库——但仓储本来
 // 就在报错，多这几击不改变故障性质。
 func (r *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (*T, error) {
-	key := r.idKey(id)
+	scope, err := r.scope(ctx)
+	if err != nil {
+		// 作用域解析失败 ⇒ 降级直查仓储（仓储是权威源，直查不会串数据）。
+		// **不回落共享缓存键**——那正是跨租户串数据的根因。
+		r.report(ctx, "scope", nil, err)
+		return r.cfg.repo.GetByID(ctx, id)
+	}
+	key := r.idKey(scope, id)
 	v, err := r.entity.GetOrLoad(ctx, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)
@@ -251,7 +329,12 @@ func (r *CachedRepository[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T
 	if r.cfg.qc == nil {
 		return r.cfg.repo.GetOne(ctx, q)
 	}
-	key, ok := r.queryCacheKey(ctx, q, "one")
+	scope, err := r.scope(ctx)
+	if err != nil {
+		r.report(ctx, "scope", nil, err)
+		return r.cfg.repo.GetOne(ctx, q)
+	}
+	key, ok := r.queryCacheKey(ctx, scope, q, "one")
 	if !ok {
 		return r.cfg.repo.GetOne(ctx, q)
 	}
@@ -279,7 +362,12 @@ func (r *CachedRepository[T, ID]) List(ctx context.Context, q *crud.Query) ([]T,
 	if r.cfg.qc == nil {
 		return r.cfg.repo.List(ctx, q)
 	}
-	key, ok := r.queryCacheKey(ctx, q, "list")
+	scope, err := r.scope(ctx)
+	if err != nil {
+		r.report(ctx, "scope", nil, err)
+		return r.cfg.repo.List(ctx, q)
+	}
+	key, ok := r.queryCacheKey(ctx, scope, q, "list")
 	if !ok {
 		return r.cfg.repo.List(ctx, q)
 	}
@@ -320,7 +408,7 @@ func (r *CachedRepository[T, ID]) Count(ctx context.Context, q *crud.Query) (int
 // 版本 miss/读失败以空版本兜底（旧版本键查不到即重建；注意若版本后端
 // 持续故障而条目后端正常，空版本键可能命中上一轮降级窗口的旧条目——
 // 仍受条目 TTL 约束）。
-func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, q *crud.Query, kind string) (string, bool) {
+func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope string, q *crud.Query, kind string) (string, bool) {
 	var spec crud.QuerySpec
 	if q != nil {
 		spec = q.Spec()
@@ -333,15 +421,16 @@ func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, q *crud.Que
 		r.report(ctx, "fingerprint", nil, err)
 		return "", false
 	}
-	ver, err := r.cfg.qc.versions.Get(ctx, r.verKey())
+	verKey := r.verKey(scope)
+	ver, err := r.cfg.qc.versions.Get(ctx, verKey)
 	if err != nil {
-		r.report(ctx, "read", []string{r.verKey()}, err)
+		r.report(ctx, "read", []string{verKey}, err)
 	}
 	current := ""
 	if ver != nil {
 		current = *ver
 	}
-	return r.queryKey(kind, current, fp), true
+	return r.queryKey(scope, kind, current, fp), true
 }
 
 // --- 写路径（先写库，成功后失效） ---
@@ -353,7 +442,14 @@ func (r *CachedRepository[T, ID]) Create(ctx context.Context, entity *T) error {
 		return err
 	}
 	ids := r.entityIDs(entity)
-	r.invalidate(ctx, ids)
+	scope, err := r.scope(ctx)
+	if err != nil {
+		// 作用域解析失败 ⇒ 无法定位该删哪个键 ⇒ 跳过失效（TTL 兜底）。
+		// 写操作本身已成功，不因此报错（报错会让调用方以为写失败而重试）。
+		r.report(ctx, "scope", nil, err)
+		return nil
+	}
+	r.invalidate(ctx, scope, ids)
 	r.bloomAdd(ctx, ids)
 	return nil
 }
@@ -367,7 +463,12 @@ func (r *CachedRepository[T, ID]) BatchCreate(ctx context.Context, entities []*T
 	for _, e := range entities {
 		ids = append(ids, r.entityIDs(e)...)
 	}
-	r.invalidate(ctx, ids)
+	scope, err := r.scope(ctx)
+	if err != nil {
+		r.report(ctx, "scope", nil, err)
+		return nil
+	}
+	r.invalidate(ctx, scope, ids)
 	r.bloomAdd(ctx, ids)
 	return nil
 }
@@ -377,7 +478,12 @@ func (r *CachedRepository[T, ID]) Update(ctx context.Context, entity *T) error {
 	if err := r.cfg.repo.Update(ctx, entity); err != nil {
 		return err
 	}
-	r.invalidate(ctx, r.entityIDs(entity))
+	scope, err := r.scope(ctx)
+	if err != nil {
+		r.report(ctx, "scope", nil, err)
+		return nil
+	}
+	r.invalidate(ctx, scope, r.entityIDs(entity))
 	return nil
 }
 
@@ -386,7 +492,12 @@ func (r *CachedRepository[T, ID]) UpdateFields(ctx context.Context, id ID, field
 	if err := r.cfg.repo.UpdateFields(ctx, id, fields); err != nil {
 		return err
 	}
-	r.invalidate(ctx, []ID{id})
+	scope, err := r.scope(ctx)
+	if err != nil {
+		r.report(ctx, "scope", nil, err)
+		return nil
+	}
+	r.invalidate(ctx, scope, []ID{id})
 	return nil
 }
 
@@ -395,7 +506,12 @@ func (r *CachedRepository[T, ID]) Delete(ctx context.Context, id ID) error {
 	if err := r.cfg.repo.Delete(ctx, id); err != nil {
 		return err
 	}
-	r.invalidate(ctx, []ID{id})
+	scope, err := r.scope(ctx)
+	if err != nil {
+		r.report(ctx, "scope", nil, err)
+		return nil
+	}
+	r.invalidate(ctx, scope, []ID{id})
 	return nil
 }
 
@@ -404,7 +520,12 @@ func (r *CachedRepository[T, ID]) BatchDelete(ctx context.Context, ids []ID) err
 	if err := r.cfg.repo.BatchDelete(ctx, ids); err != nil {
 		return err
 	}
-	r.invalidate(ctx, ids)
+	scope, err := r.scope(ctx)
+	if err != nil {
+		r.report(ctx, "scope", nil, err)
+		return nil
+	}
+	r.invalidate(ctx, scope, ids)
 	return nil
 }
 
@@ -457,10 +578,10 @@ func defaultIDAccessor[T any, ID comparable]() (func(*T) ID, bool) {
 
 // invalidate 写库成功后的失效：删实体键（best-effort）+ bump 查询版本。
 // 失败不回滚写操作，经 onError 上报，TTL 兜底。
-func (r *CachedRepository[T, ID]) invalidate(ctx context.Context, ids []ID) {
+func (r *CachedRepository[T, ID]) invalidate(ctx context.Context, scope string, ids []ID) {
 	if len(ids) > 0 {
 		keys := make([]string, 0, len(ids))
-		prefix := r.idKeyPrefix()
+		prefix := r.idKeyPrefix(scope)
 		for _, id := range ids {
 			keys = append(keys, prefix+r.encodeID(id))
 		}
@@ -470,8 +591,9 @@ func (r *CachedRepository[T, ID]) invalidate(ctx context.Context, ids []ID) {
 	}
 	if r.cfg.qc != nil {
 		ver := newVersionToken()
-		if err := r.cfg.qc.versions.Set(ctx, r.verKey(), &ver); err != nil {
-			r.report(ctx, "invalidate", []string{r.verKey()}, err)
+		verKey := r.verKey(scope)
+		if err := r.cfg.qc.versions.Set(ctx, verKey, &ver); err != nil {
+			r.report(ctx, "invalidate", []string{verKey}, err)
 		}
 	}
 }
@@ -520,7 +642,14 @@ func (r *CachedRepository[T, ID]) RunInTx(ctx context.Context, fn func(repo crud
 	}
 	// 提交后的失效用 WithoutCancel：调用方在提交瞬间取消 context
 	// 不能吞掉失效（失效失败只剩 TTL 兜底，能救一次是一次）。
-	r.applyCollected(context.WithoutCancel(ctx), tw)
+	// 作用域在事务入口解析一次（事务内外的 ctx 相同，作用域相同），
+	// 解析失败则跳过失效（TTL 兜底）——写已提交，不因此报错。
+	scope, scopeErr := r.scope(ctx)
+	if scopeErr != nil {
+		r.report(ctx, "scope", nil, scopeErr)
+		return nil
+	}
+	r.applyCollected(context.WithoutCancel(ctx), scope, tw)
 	return nil
 }
 
@@ -658,11 +787,11 @@ func (t *txCollector[T, ID]) GetByIDForUpdate(ctx context.Context, id ID) (*T, e
 }
 
 // applyCollected 提交成功后的统一失效。
-func (r *CachedRepository[T, ID]) applyCollected(ctx context.Context, t *txCollector[T, ID]) {
+func (r *CachedRepository[T, ID]) applyCollected(ctx context.Context, scope string, t *txCollector[T, ID]) {
 	t.mu.Lock()
 	ids := t.ids
 	created := t.created
 	t.mu.Unlock()
-	r.invalidate(ctx, ids)
+	r.invalidate(ctx, scope, ids)
 	r.bloomAdd(ctx, created)
 }
