@@ -1,3 +1,7 @@
+## [v0.19.3] — 2026-10-28
+
+- fix(timertask 壳): 同步源仓 timertask v0.2.3 新增的导出符号 `ErrEmptyTaskID`（空任务 ID 不被拒绝）——壳缺该符号时门禁报「壳缺导出符号」；同时把 go.mod 的 timertask 地板从 v0.2.0 抬到 v0.2.3
+
 ## [v0.19.2] — 2026-10-28
 
 - feat(redisx): 门面壳补 NewClientFromClient（跟 redisx v0.10.5 新导出），并抬 redisx 地板 v0.9.0 → v0.10.5
