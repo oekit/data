@@ -20,6 +20,9 @@ type Task = src.Task
 type TimerTask = src.TimerTask
 type TimerTaskOption = src.TimerTaskOption
 
+// ErrEmptyTaskID 提交的任务没有 ID（任务 ID 必须唯一）。
+var ErrEmptyTaskID = src.ErrEmptyTaskID
+
 var NewLocalBackend = src.NewLocalBackend
 var ResolveOptions = src.ResolveOptions
 var WithAtLeastOnce = src.WithAtLeastOnce
