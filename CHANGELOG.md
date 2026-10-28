@@ -1,3 +1,15 @@
+## [v0.19.5] — 2026-10-28
+
+- chore(deps): 测试依赖的 sqlite 驱动换成纯 Go 实现，清掉 CGO 直接依赖
+
+主模块 go.mod 把 `gorm.io/driver/sqlite` v1.6.0（CGO 驱动，包装 `mattn/go-sqlite3`）列为**直接依赖**，而本仓**生产代码一行都没用它**——它只出现在两个测试文件里（`cached/integration_gorm_test.go`、`cached/textpk_test.go` 的真实 sqlite 集成测试）⇒ CGO 依赖链随本仓流向所有消费方的模块图与 go.sum。
+
+换成**纯 Go 驱动** `github.com/glebarez/sqlite`（modernc 系）⇒ ① 本仓测试可在 `CGO_ENABLED=0` 下运行（实测改前 `CGO_ENABLED=0 go test ./...` 报 "go-sqlite3 requires cgo to work. This is a stub"）；② 判据面按纯 Go 驱动的文案判定，验证面与承诺面一致；③ 主模块不再直接依赖任何 CGO 驱动。
+
+配套：`modernc.org/sqlite` → v1.61.0（当前最新）、`github.com/glebarez/go-sqlite` → v1.23.0（均为 go 1.26 内可用的最高版），`go` 指令保持 1.26.0 不变。
+
+另：门面壳同步 gormx v0.6.4——补 `OpenPureGoSQLite` 转发（源仓新增导出符号而壳没补 ⇒ 消费方经 data 拿不到该能力），并把 `github.com/oekit/gormx` 地板从 v0.6.2 抬到 v0.6.4（最早含全部缺失符号的 tag）⇒ 消除 shell_sync 的两项漂移（#64）
+
 ## [v0.19.4] — 2026-10-28
 
 - feat(cached): 新增 `WithScopeKey`——缓存键原本**没有租户/作用域维度** ⇒ 底层仓储按租户隔离时（RLS / 每租户连接 / 每租户库）同一个 ID 在不同租户下是**不同的行**却共用一个键 ⇒ 跨租户读泄漏，且某租户「不存在」的 null marker 会让其他租户明明有这行却命中 marker 报 NotFound。启用后键形态为「前缀:类型:scope:<作用域>:id:N」，作用域按 ctx 解析 ⇒ 一个仓储实例可服务多个租户；作用域解析失败时读路径降级直查仓储、写路径跳过失效（TTL 兜底），绝不回落共享键。未启用时键形态与历史逐字节一致
