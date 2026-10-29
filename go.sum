@@ -34,8 +34,8 @@ github.com/mattn/go-sqlite3 v1.14.22 h1:2gZY6PC6kBnID23Tichd1K+Z0oS6nE/XwU+Vz/5o
 github.com/mattn/go-sqlite3 v1.14.22/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
 github.com/ncruces/go-strftime v1.1.0 h1:vtPmPWMkb539RGV9WpWT9EwJGvrOCKvMNI4obWL47Hk=
 github.com/ncruces/go-strftime v1.1.0/go.mod h1:yVaq7iwCN09vHRrKBrrflXT0M9tTMG2KmZ9Fj7xeG/g=
-github.com/oekit/concurrency v0.23.1 h1:aW+U6kYBY3hSyrFvjNNecGqUg4RBKSCPc6c5XJ/Kk/0=
-github.com/oekit/concurrency v0.23.1/go.mod h1:ht9EmByozS4A4fpEO6O2OSCfMe9/LiBXxL4t9hUb8kM=
+github.com/oekit/concurrency v0.23.2 h1:1iMfoBe7ti6//IRJoyBlokhUKW0tSEvrQIvb3lEXyvI=
+github.com/oekit/concurrency v0.23.2/go.mod h1:eLMEfucIyKs1cLGK4+lKRQCf3Fgb6EE/mkpPXFMRuMA=
 github.com/oekit/gormx v0.6.4 h1:W8kY/A5ol7c5XnDvISpIRoA1iXjKLgN9lqUftwkjxUM=
 github.com/oekit/gormx v0.6.4/go.mod h1:eGSyo3QIuLF/sjKBNwf1iYPEmN1osC/if5uLt/RotwE=
 github.com/oekit/logx v0.8.0 h1:S0KQOiI6h4GGktsv0fl1KtHBcOGZZgj6M6cUCLRk41E=
