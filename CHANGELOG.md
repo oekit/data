@@ -16,7 +16,7 @@
 
 ## [v0.19.5] — 2026-10-28
 
-- #64：chore(deps): 测试依赖的 sqlite 驱动换成纯 Go 实现，清掉 CGO 直接依赖
+- chore(deps): 测试依赖的 sqlite 驱动换成纯 Go 实现，清掉 CGO 直接依赖（#64）
 
 主模块 go.mod 把 `gorm.io/driver/sqlite` v1.6.0（CGO 驱动，包装 `mattn/go-sqlite3`）列为**直接依赖**，而本仓**生产代码一行都没用它**——它只出现在两个测试文件里（`cached/integration_gorm_test.go`、`cached/textpk_test.go` 的真实 sqlite 集成测试）⇒ CGO 依赖链随本仓流向所有消费方的模块图与 go.sum。
 
@@ -118,7 +118,7 @@
 ## [v0.13.0] — 2026-10-18
 
 ### feat(distlock)：壳同步 redisx v0.9.0 分布式防爆破锁 `Lockout`（[#6](https://github.com/oekit/data/issues/6)）
-- #6：新增 `Lockout`/`LockoutConfig`（type alias，与源包同一类型）与 `NewLockout`
+- 新增 `Lockout`/`LockoutConfig`（type alias，与源包同一类型）与 `NewLockout`（#6）
   （转发）——redisx#6 落地的 Redis 侧 fail2ban 形态防爆破锁（滑窗失败计数 →
   锁定 Penalty → Reset），与 concurrency/ratelimit.Lockout 进程内孪生
 - redisx 地板 v0.8.0 → **v0.9.0**（门面跟版税）。根因不是壳漏加而是地板没跟上：
@@ -348,7 +348,7 @@
 
 ## [v0.3.4] — 2026-10-16
 
-- #3：docs: 修正幽灵宣称——README/AGENTS 中的 `cache.NewChecker`（Checker 刷新检查器）
+- docs: 修正幽灵宣称（#3）——README/AGENTS 中的 `cache.NewChecker`（Checker 刷新检查器）
   自拆分起从未在本仓存在（实现在 [pkg](https://github.com/oekit/pkg) 的 `cache` 子包，
   签名与原示例一致），删除失真宣称与编译必挂的示例，改为指向 pkg/cache；
   快速使用换为 LocalCache 真实示例
