@@ -11,6 +11,11 @@ type Batch = src.Batch
 type BloomFilter = src.BloomFilter
 type Client = src.Client
 type Counter = src.Counter
+
+// Pipeline 是 redis.Pipeliner 的键前缀代理（redisx v0.11.0，redisx#79）——
+// Pipeline()/TxPipeline() 改返 *Pipeline，convertKey 全覆盖、未覆盖命令编译期拦截；
+// 需要原生管道的场景走 Raw()。
+type Pipeline = src.Pipeline
 type RedisClientOption = src.RedisClientOption
 type RedisClientOptionFunc = src.RedisClientOptionFunc
 type RedisConfig = src.RedisConfig

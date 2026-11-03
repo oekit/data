@@ -16,6 +16,10 @@ func TestTypeIdentity(t *testing.T) {
 
 	opt := &redisx.RedisClientOption{Prefix: "shell:"}
 	testsame.Assert[*redisxsrc.RedisClientOption](opt) // 结构体类型同一
+
+	// redisx v0.11.0 的键前缀代理 *Pipeline（redisx#79）：alias 与源同一。
+	testsame.Assert[*redisxsrc.Pipeline](&redisx.Pipeline{})
+	testsame.Assert[*redisx.Pipeline](&redisxsrc.Pipeline{})
 }
 
 // TestFuncIdentity 门面 re-export 的**函数值**与源包同一（指针相等）。
