@@ -89,3 +89,11 @@ func RunStatsWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[
 func RunSourceInjectionWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
 	src.RunSourceInjectionWithClock(t, c, factory)
 }
+
+// RunSetNXWithClock 跑「原子 NX 写入」契约（pkg v0.32.0，pkg#168）——实现须提供
+// cache.NXSetter 能力（SetNX(ctx, key, value, ttl) (bool, error)），未提供即判失败。
+// 钉住的是「不存在才写入」的原子语义：先到先得、失败零副作用（不覆盖值、不刷 TTL、
+// 不刷新淘汰顺序）、ttl<=0 不过期、过期条目与 null marker 按「不存在」处理。
+func RunSetNXWithClock[T any](t *testing.T, c Contract[T], factory ClockFactory[T]) {
+	src.RunSetNXWithClock(t, c, factory)
+}
