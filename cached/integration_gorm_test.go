@@ -74,7 +74,7 @@ func TestIntegrationGormCachedRepository(t *testing.T) {
 	}
 
 	// Update 失效 → 读到新值
-	if err = cr.Update(ctx, &gormUser{ID: created.ID, Name: "alice2", Email: "a@e.com"}); err != nil {
+	if _, err = cr.Update(ctx, &gormUser{ID: created.ID, Name: "alice2", Email: "a@e.com"}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if got, err = cr.GetByID(ctx, created.ID); err != nil {
@@ -85,7 +85,7 @@ func TestIntegrationGormCachedRepository(t *testing.T) {
 	}
 
 	// Delete → ErrNotFound；null marker 让第二次同样稳定
-	if err = cr.Delete(ctx, created.ID); err != nil {
+	if _, err = cr.Delete(ctx, created.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	for i := 0; i < 2; i++ {
@@ -103,7 +103,8 @@ func TestIntegrationGormCachedRepository(t *testing.T) {
 		t.Fatalf("warm bob: %v", err)
 	}
 	if err = cr.RunInTx(ctx, func(repo crud.Repository[gormUser, int64]) error {
-		return repo.Update(ctx, &gormUser{ID: txUser.ID, Name: "bob2", Email: "b@e.com"})
+		_, updErr := repo.Update(ctx, &gormUser{ID: txUser.ID, Name: "bob2", Email: "b@e.com"})
+		return updErr
 	}); err != nil {
 		t.Fatalf("RunInTx: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestIntegrationGormTxRollback(t *testing.T) {
 	}
 
 	err := cr.RunInTx(ctx, func(repo crud.Repository[gormUser, int64]) error {
-		if err := repo.Update(ctx, &gormUser{ID: u.ID, Name: "carol2"}); err != nil {
+		if _, err := repo.Update(ctx, &gormUser{ID: u.ID, Name: "carol2"}); err != nil {
 			return err
 		}
 		return errors.New("business rejected")

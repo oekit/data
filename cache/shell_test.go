@@ -2,6 +2,8 @@ package cache_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -66,6 +68,19 @@ func TestObservabilityCapabilityIdentity(t *testing.T) {
 	// Stats 非泛型：两个方向的赋值都成立即同一类型。
 	testsame.Assert[cache.Stats](pkgcache.Stats{})
 	testsame.Assert[pkgcache.Stats](cache.Stats{})
+}
+
+// TestErrorSentinelIdentity pkg v0.33.0 的 stale 兜底取消哨兵（pkg#172）：
+// var 转发与源包同一错误值——消费方 errors.Is(err, cache.ErrNoStale) 必须
+// 与判源包哨兵等价，包一层新错误值就断了。
+func TestErrorSentinelIdentity(t *testing.T) {
+	if !errors.Is(cache.ErrNoStale, pkgcache.ErrNoStale) {
+		t.Fatal("cache.ErrNoStale 与源包不是同一哨兵")
+	}
+	wrapped := fmt.Errorf("upstream denied: %w", cache.ErrNoStale)
+	if !errors.Is(wrapped, pkgcache.ErrNoStale) {
+		t.Fatal("wrap 后 errors.Is 不命中源包哨兵")
+	}
 }
 
 // TestGetOrLoadSmoke 门面入口行为冒烟。

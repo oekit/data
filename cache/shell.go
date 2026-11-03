@@ -58,6 +58,11 @@ var UserKey = src.UserKey
 var NewChecker = src.NewChecker
 var WithClock = src.WithClock
 
+// ErrNoStale 是「取消 stale 兜底」的可识别哨兵错误（pkg v0.33.0，pkg#172）——
+// 回源错误 unwrap 命中本哨兵（errors.Is(err, ErrNoStale)）时，即使 StaleIfError
+// 开着也不做 stale 兜底，错误原样回传。
+var ErrNoStale = src.ErrNoStale
+
 // ErrNXUnsupported 内层不具备 NXSetter 能力时的 fail-loud 哨兵（pkg v0.32.0，pkg#168）——
 // SingleFlightCache.SetNX 转发时内层无此能力即返回它（能力缺失要看得见，不能假装成功）。
 var ErrNXUnsupported = src.ErrNXUnsupported

@@ -36,7 +36,8 @@ func TestRunInTxInvalidatesOnlyAfterCommit(t *testing.T) {
 	}
 
 	err := cr.RunInTx(ctx, func(tx crud.Repository[user, int64]) error {
-		return tx.Update(ctx, &user{ID: 7, Name: "bob"})
+		_, err := tx.Update(ctx, &user{ID: 7, Name: "bob"})
+		return err
 	})
 	if err != nil {
 		t.Fatalf("RunInTx: %v", err)
@@ -75,7 +76,7 @@ func TestRunInTxRollbackKeepsCache(t *testing.T) {
 	}
 
 	err := cr.RunInTx(ctx, func(tx crud.Repository[user, int64]) error {
-		if err := tx.Update(ctx, &user{ID: 7, Name: "bob"}); err != nil {
+		if _, err := tx.Update(ctx, &user{ID: 7, Name: "bob"}); err != nil {
 			return err
 		}
 		return context.Canceled // 模拟业务失败回滚
@@ -184,7 +185,8 @@ func TestRunInTxNestedStillCollects(t *testing.T) {
 			t.Fatal("事务视图应实现 TxRepository")
 		}
 		return txRepo.RunInTx(ctx, func(inner crud.Repository[user, int64]) error {
-			return inner.Update(ctx, &user{ID: 7, Name: "bob"})
+			_, err := inner.Update(ctx, &user{ID: 7, Name: "bob"})
+			return err
 		})
 	})
 	if err != nil {
