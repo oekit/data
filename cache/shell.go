@@ -41,6 +41,11 @@ type Stats = src.Stats
 // StatsProvider 可选能力接口：暴露缓存的观测计数快照（pkg v0.24.0，pkg#76）。
 type StatsProvider = src.StatsProvider
 
+// NXSetter 可选能力接口：不存在才写入（原子 SetNX，pkg v0.32.0，pkg#168）——
+// 与 Redis SET NX 同语义：占位/一次性标记/生成码唯一性这类「先到先得」的写入，
+// 判定与写入必须原子完成（Get + Set 两步在并发下会双双判「不存在」而覆盖彼此）。
+type NXSetter[T any] = src.NXSetter[T]
+
 // SourceInjector 可选能力接口：按调用注入回源函数（pkg v0.24.0，pkg#77）——
 // 回源依赖 key / 依赖调用上下文的缓存（token/凭据/租户级）不必在缓存外再包
 // 一层 key→source 注册表，且单飞语义不变。
@@ -52,3 +57,7 @@ var TenantKey = src.TenantKey
 var UserKey = src.UserKey
 var NewChecker = src.NewChecker
 var WithClock = src.WithClock
+
+// ErrNXUnsupported 内层不具备 NXSetter 能力时的 fail-loud 哨兵（pkg v0.32.0，pkg#168）——
+// SingleFlightCache.SetNX 转发时内层无此能力即返回它（能力缺失要看得见，不能假装成功）。
+var ErrNXUnsupported = src.ErrNXUnsupported
