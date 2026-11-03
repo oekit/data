@@ -44,7 +44,7 @@ func TestListCachedUntilWrite(t *testing.T) {
 		t.Fatalf("repo.List calls = %d, want 1（第二次必须命中查询缓存）", n)
 	}
 
-	if err := cr.Update(ctx, &user{ID: 1, Name: "a2"}); err != nil {
+	if _, err := cr.Update(ctx, &user{ID: 1, Name: "a2"}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	items, _, err := cr.List(ctx, crud.NewQuery())
@@ -102,7 +102,7 @@ func TestGetOneCachedUntilWrite(t *testing.T) {
 		t.Fatalf("repo.GetOne calls = %d, want 1", n)
 	}
 
-	if err := cr.Update(ctx, &user{ID: 1, Name: "a2"}); err != nil {
+	if _, err := cr.Update(ctx, &user{ID: 1, Name: "a2"}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	got, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 1))

@@ -151,39 +151,46 @@ func (f *fakeRepo[T]) BatchCreate(ctx context.Context, entities []*T, batchSize 
 	return nil
 }
 
-func (f *fakeRepo[T]) Update(ctx context.Context, entity *T) error {
+func (f *fakeRepo[T]) Update(ctx context.Context, entity *T, opts ...crud.UpdateOption) (int64, error) {
 	f.tick("Update")
 	f.log("repo:update")
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.byID[f.idOf(entity)] = entity
-	return nil
+	return 1, nil
 }
 
-func (f *fakeRepo[T]) UpdateFields(ctx context.Context, id int64, fields map[string]any) error {
+func (f *fakeRepo[T]) UpdateFields(ctx context.Context, id int64, fields map[string]any) (int64, error) {
 	f.tick("UpdateFields")
 	f.log("repo:updatefields")
-	return nil
+	return 1, nil
 }
 
-func (f *fakeRepo[T]) Delete(ctx context.Context, id int64) error {
+func (f *fakeRepo[T]) Delete(ctx context.Context, id int64) (int64, error) {
 	f.tick("Delete")
 	f.log("repo:delete")
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if _, ok := f.byID[id]; !ok {
+		return 0, nil // 0 = 记录不存在（gormx v0.7.0 found 语义，gormx#60）
+	}
 	delete(f.byID, id)
-	return nil
+	return 1, nil
 }
 
-func (f *fakeRepo[T]) BatchDelete(ctx context.Context, ids []int64) error {
+func (f *fakeRepo[T]) BatchDelete(ctx context.Context, ids []int64) (int64, error) {
 	f.tick("BatchDelete")
 	f.log("repo:batchdelete")
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	var rows int64
 	for _, id := range ids {
+		if _, ok := f.byID[id]; ok {
+			rows++
+		}
 		delete(f.byID, id)
 	}
-	return nil
+	return rows, nil
 }
 
 func (f *fakeRepo[T]) RunInTx(ctx context.Context, fn func(repo crud.Repository[T, int64]) error) error {

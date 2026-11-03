@@ -74,7 +74,7 @@ func TestIntegrationTextPKCached(t *testing.T) {
 	}
 
 	// UpdateFields（string ID）写库 + 删实体键 → 点读必须拿到新值
-	if updErr := cr.UpdateFields(ctx, textDocID, map[string]any{"name": "doc1-upd"}); updErr != nil {
+	if _, updErr := cr.UpdateFields(ctx, textDocID, map[string]any{"name": "doc1-upd"}); updErr != nil {
 		t.Fatalf("UpdateFields: %v", updErr)
 	}
 	got, err = cr.GetByID(ctx, textDocID)
@@ -95,7 +95,7 @@ func TestIntegrationTextPKCached(t *testing.T) {
 	}
 
 	// Delete 失效 → null marker 稳定 ErrNotFound
-	if err := cr.Delete(ctx, textDocID); err != nil {
+	if _, err := cr.Delete(ctx, textDocID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if _, err := cr.GetByID(ctx, textDocID); !errors.Is(err, crud.ErrNotFound) {

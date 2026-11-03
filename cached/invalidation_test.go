@@ -91,7 +91,7 @@ func TestUpdateInvalidatesEntityCache(t *testing.T) {
 		t.Fatalf("warm GetByID: %v", err)
 	}
 
-	if err := cr.Update(ctx, &user{ID: 7, Name: "bob"}); err != nil {
+	if _, err := cr.Update(ctx, &user{ID: 7, Name: "bob"}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func TestDeleteInvalidatesEntityCache(t *testing.T) {
 	if _, err := cr.GetByID(ctx, 7); err != nil {
 		t.Fatalf("warm GetByID: %v", err)
 	}
-	if err := cr.Delete(ctx, 7); err != nil {
+	if _, err := cr.Delete(ctx, 7); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -168,7 +168,7 @@ func TestOtherWritePathsInvalidate(t *testing.T) {
 	if _, err := cr.GetByID(ctx, 1); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
-	if err := cr.UpdateFields(ctx, 1, map[string]any{"name": "a2"}); err != nil {
+	if _, err := cr.UpdateFields(ctx, 1, map[string]any{"name": "a2"}); err != nil {
 		t.Fatalf("UpdateFields: %v", err)
 	}
 	// 键已失效 → 下次读回源（fake 不改数据，仅验证回源发生）
@@ -182,7 +182,7 @@ func TestOtherWritePathsInvalidate(t *testing.T) {
 	if _, err := cr.GetByID(ctx, 2); err != nil {
 		t.Fatalf("warm 2: %v", err)
 	}
-	if err := cr.BatchDelete(ctx, []int64{2}); err != nil {
+	if _, err := cr.BatchDelete(ctx, []int64{2}); err != nil {
 		t.Fatalf("BatchDelete: %v", err)
 	}
 	if _, err := cr.GetByID(ctx, 2); !errors.Is(err, crud.ErrNotFound) {
@@ -212,7 +212,7 @@ func TestInvalidateFailureReportedButWriteSucceeds(t *testing.T) {
 		t.Fatalf("warm: %v", err)
 	}
 
-	if err := cr.Update(ctx, &user{ID: 7, Name: "bob"}); err != nil {
+	if _, err := cr.Update(ctx, &user{ID: 7, Name: "bob"}); err != nil {
 		t.Fatalf("Update 必须成功（删缓存失败不回滚写）: %v", err)
 	}
 	if n := repo.count("Update"); n != 1 {
@@ -246,7 +246,7 @@ func TestDefaultIDAccessorViaGetIDInterface(t *testing.T) {
 	if _, err := cr.GetByID(ctx, 5); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
-	if err := cr.Update(ctx, &model{BaseModel: gormx.BaseModel{ID: 5}, Name: "m2"}); err != nil {
+	if _, err := cr.Update(ctx, &model{BaseModel: gormx.BaseModel{ID: 5}, Name: "m2"}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	got, err := cr.GetByID(ctx, 5)
@@ -284,7 +284,7 @@ func TestDefaultIDAccessorViaGetIDOnlyEntity(t *testing.T) {
 	if _, err := cr.GetByID(ctx, 5); err != nil {
 		t.Fatalf("warm: %v", err)
 	}
-	if err := cr.Update(ctx, &idOnlyEntity{uid: 5, Name: "a2"}); err != nil {
+	if _, err := cr.Update(ctx, &idOnlyEntity{uid: 5, Name: "a2"}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	got, err := cr.GetByID(ctx, 5)
@@ -340,7 +340,7 @@ func TestWritePathWithoutIDAccessStillSucceeds(t *testing.T) {
 	if err := cr.Create(ctx, &blob{Name: "x"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := cr.Update(ctx, &blob{Name: "y"}); err != nil {
+	if _, err := cr.Update(ctx, &blob{Name: "y"}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if n := repo.count("Update"); n != 1 {

@@ -473,60 +473,65 @@ func (r *CachedRepository[T, ID]) BatchCreate(ctx context.Context, entities []*T
 	return nil
 }
 
-// Update 写库后删实体键 + bump 查询版本。
-func (r *CachedRepository[T, ID]) Update(ctx context.Context, entity *T) error {
-	if err := r.cfg.repo.Update(ctx, entity); err != nil {
-		return err
+// Update 写库后删实体键 + bump 查询版本。回传受影响行数（gormx v0.7.0，gormx#60）；
+// opts 限定写入列（gormx#61），原样转发给底层仓储。
+func (r *CachedRepository[T, ID]) Update(ctx context.Context, entity *T, opts ...crud.UpdateOption) (int64, error) {
+	rows, err := r.cfg.repo.Update(ctx, entity, opts...)
+	if err != nil {
+		return rows, err
 	}
 	scope, err := r.scope(ctx)
 	if err != nil {
 		r.report(ctx, "scope", nil, err)
-		return nil
+		return rows, nil
 	}
 	r.invalidate(ctx, scope, r.entityIDs(entity))
-	return nil
+	return rows, nil
 }
 
-// UpdateFields 写库后删实体键 + bump 查询版本。
-func (r *CachedRepository[T, ID]) UpdateFields(ctx context.Context, id ID, fields map[string]any) error {
-	if err := r.cfg.repo.UpdateFields(ctx, id, fields); err != nil {
-		return err
+// UpdateFields 写库后删实体键 + bump 查询版本。回传受影响行数（gormx v0.7.0，gormx#60）。
+func (r *CachedRepository[T, ID]) UpdateFields(ctx context.Context, id ID, fields map[string]any) (int64, error) {
+	rows, err := r.cfg.repo.UpdateFields(ctx, id, fields)
+	if err != nil {
+		return rows, err
 	}
 	scope, err := r.scope(ctx)
 	if err != nil {
 		r.report(ctx, "scope", nil, err)
-		return nil
+		return rows, nil
 	}
 	r.invalidate(ctx, scope, []ID{id})
-	return nil
+	return rows, nil
 }
 
-// Delete 写库后删实体键 + bump 查询版本。
-func (r *CachedRepository[T, ID]) Delete(ctx context.Context, id ID) error {
-	if err := r.cfg.repo.Delete(ctx, id); err != nil {
-		return err
+// Delete 写库后删实体键 + bump 查询版本。回传受影响行数（gormx v0.7.0，gormx#60）。
+func (r *CachedRepository[T, ID]) Delete(ctx context.Context, id ID) (int64, error) {
+	rows, err := r.cfg.repo.Delete(ctx, id)
+	if err != nil {
+		return rows, err
 	}
 	scope, err := r.scope(ctx)
 	if err != nil {
 		r.report(ctx, "scope", nil, err)
-		return nil
+		return rows, nil
 	}
 	r.invalidate(ctx, scope, []ID{id})
-	return nil
+	return rows, nil
 }
 
-// BatchDelete 写库后批量删键 + 一次版本 bump。
-func (r *CachedRepository[T, ID]) BatchDelete(ctx context.Context, ids []ID) error {
-	if err := r.cfg.repo.BatchDelete(ctx, ids); err != nil {
-		return err
+// BatchDelete 写库后批量删键 + 一次版本 bump。回传受影响行数（gormx v0.7.0，gormx#60）。
+func (r *CachedRepository[T, ID]) BatchDelete(ctx context.Context, ids []ID) (int64, error) {
+	rows, err := r.cfg.repo.BatchDelete(ctx, ids)
+	if err != nil {
+		return rows, err
 	}
 	scope, err := r.scope(ctx)
 	if err != nil {
 		r.report(ctx, "scope", nil, err)
-		return nil
+		return rows, nil
 	}
 	r.invalidate(ctx, scope, ids)
-	return nil
+	return rows, nil
 }
 
 // entityIDs 取实体 ID（WithID 或缺省探测）；取不到时返回空——
@@ -734,36 +739,40 @@ func (t *txCollector[T, ID]) BatchCreate(ctx context.Context, entities []*T, bat
 	return nil
 }
 
-func (t *txCollector[T, ID]) Update(ctx context.Context, entity *T) error {
-	if err := t.inner.Update(ctx, entity); err != nil {
-		return err
+func (t *txCollector[T, ID]) Update(ctx context.Context, entity *T, opts ...crud.UpdateOption) (int64, error) {
+	rows, err := t.inner.Update(ctx, entity, opts...)
+	if err != nil {
+		return rows, err
 	}
 	t.note(t.outer.entityIDs(entity))
-	return nil
+	return rows, nil
 }
 
-func (t *txCollector[T, ID]) UpdateFields(ctx context.Context, id ID, fields map[string]any) error {
-	if err := t.inner.UpdateFields(ctx, id, fields); err != nil {
-		return err
+func (t *txCollector[T, ID]) UpdateFields(ctx context.Context, id ID, fields map[string]any) (int64, error) {
+	rows, err := t.inner.UpdateFields(ctx, id, fields)
+	if err != nil {
+		return rows, err
 	}
 	t.note([]ID{id})
-	return nil
+	return rows, nil
 }
 
-func (t *txCollector[T, ID]) Delete(ctx context.Context, id ID) error {
-	if err := t.inner.Delete(ctx, id); err != nil {
-		return err
+func (t *txCollector[T, ID]) Delete(ctx context.Context, id ID) (int64, error) {
+	rows, err := t.inner.Delete(ctx, id)
+	if err != nil {
+		return rows, err
 	}
 	t.note([]ID{id})
-	return nil
+	return rows, nil
 }
 
-func (t *txCollector[T, ID]) BatchDelete(ctx context.Context, ids []ID) error {
-	if err := t.inner.BatchDelete(ctx, ids); err != nil {
-		return err
+func (t *txCollector[T, ID]) BatchDelete(ctx context.Context, ids []ID) (int64, error) {
+	rows, err := t.inner.BatchDelete(ctx, ids)
+	if err != nil {
+		return rows, err
 	}
 	t.note(ids)
-	return nil
+	return rows, nil
 }
 
 func (t *txCollector[T, ID]) RunInTx(ctx context.Context, fn func(repo crud.Repository[T, ID]) error) error {
