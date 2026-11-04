@@ -26,7 +26,6 @@ var IsUniqueViolation = src.IsUniqueViolation
 var MapQueryError = src.MapQueryError
 var Open = src.Open
 var OpenMySQL = src.OpenMySQL
-var OpenPureGoSQLite = src.OpenPureGoSQLite
 var PaginateScope = src.PaginateScope
 var NewAuditPlugin = src.NewAuditPlugin
 var NewFilterBuilder = src.NewFilterBuilder

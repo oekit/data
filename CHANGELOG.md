@@ -1,3 +1,8 @@
+## [v0.20.0] — 2026-11-04
+
+- ⚠️ breaking：`data/gormx` 壳移除 `OpenPureGoSQLite`——源 `gormx` v0.8.0 已把纯 Go sqlite 入口整体移出根包（拆 opt-in 子包 `gormx/sqlitedrv`，源仓 oekit/gormx#72：根包自动注册 `"sqlite"` 驱动名与 `modernc.org/sqlite` 同链即 init panic）。迁移：改 import `github.com/oekit/gormx/sqlitedrv`，调用 `sqlitedrv.OpenPureGoSQLite(dsn, opts...)`（签名不变）。
+- build: 矩阵内依赖地板 `gormx` v0.7.1 → v0.8.0（壳与地板同步跟随源仓拆包；除上述符号移除外本版无其他 API 变更）
+
 ## [v0.19.9] — 2026-11-02
 
 - build: 矩阵内依赖地板 `concurrency` v0.23.2 → v0.23.3、`gormx` v0.6.5 → v0.6.6、`redisx` v0.10.8 → v0.10.9、`timertask` v0.2.5 → v0.2.6（维护轮全量对齐；本版不含 API 变更）
