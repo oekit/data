@@ -5,9 +5,9 @@ go 1.26.0
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/glebarez/sqlite v1.11.0
-	github.com/oekit/concurrency v0.25.0
-	github.com/oekit/gormx v0.10.0
-	github.com/oekit/logx v0.8.2
+	github.com/oekit/concurrency v0.25.1
+	github.com/oekit/gormx v0.10.1
+	github.com/oekit/logx v0.8.3
 	github.com/oekit/pkg v0.34.1
 	github.com/oekit/redisx v0.11.0
 	github.com/oekit/timertask v0.2.8
