@@ -32,3 +32,11 @@ var WithOnFailure = src.WithOnFailure
 var WithRetry = src.WithRetry
 var WithVisibilityTimeout = src.WithVisibilityTimeout
 var WithWorkers = src.WithWorkers
+
+// ---- Clock 注入形态（timertask v0.2.x）----
+
+type Clock = src.Clock
+
+type SystemClock = src.SystemClock
+
+var WithClock = src.WithClock

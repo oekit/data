@@ -71,3 +71,21 @@ var ErrNoStale = src.ErrNoStale
 // ErrNXUnsupported 内层不具备 NXSetter 能力时的 fail-loud 哨兵（pkg v0.32.0，pkg#168）——
 // SingleFlightCache.SetNX 转发时内层无此能力即返回它（能力缺失要看得见，不能假装成功）。
 var ErrNXUnsupported = src.ErrNXUnsupported
+
+// ---- SingleValue[T] 单值 TTL 缓存形态（pkg v0.37.0 #213）----
+
+type SingleValue[T any] = src.SingleValue[T]
+
+type SingleValueConfig[T any] = src.SingleValueConfig[T]
+
+type SingleValueSource[T any] = src.SingleValueSource[T]
+
+type SingleValueSourceWithTTL[T any] = src.SingleValueSourceWithTTL[T]
+
+var ErrNoValue = src.ErrNoValue
+
+// NewSingleValue 是泛型函数——Go 不允许 var 引用未实例化的泛型函数值，
+// 以薄包装透传（类型同一：入参/返回值都是源包类型）。
+func NewSingleValue[T any](cfg src.SingleValueConfig[T]) *src.SingleValue[T] {
+	return src.NewSingleValue(cfg)
+}
