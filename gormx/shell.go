@@ -5,7 +5,13 @@
 // 本壳需同步（门面跟版税，data 门面化决策已接受）。
 package gormx
 
-import src "github.com/oekit/gormx"
+import (
+	"context"
+
+	"gorm.io/gorm"
+
+	src "github.com/oekit/gormx"
+)
 
 type AuditModel = src.AuditModel
 type AuditPlugin = src.AuditPlugin
@@ -38,3 +44,24 @@ var NewLogger = src.NewLogger
 var WithConnMaxIdleTime = src.WithConnMaxIdleTime
 var WithConnectionPool = src.WithConnectionPool
 var WithGormOptions = src.WithGormOptions
+
+// ---- 部分更新/子查询/Page/日志脱敏（gormx v0.11.3 #80-#106）----
+
+type Page = src.Page
+
+type LoggerOption = src.LoggerOption
+
+var NormalizePage = src.NormalizePage
+
+// SavePatch 泛型函数薄包装（同 NewSingleValue 的说明）。
+func SavePatch[M any](ctx context.Context, db *gorm.DB, pk any, patch any) error {
+	return src.SavePatch[M](ctx, db, pk, patch)
+}
+
+var SubqueryIn = src.SubqueryIn
+
+var DeleteBySubquery = src.DeleteBySubquery
+
+var WithLogger = src.WithLogger
+
+var WithRedactColumns = src.WithRedactColumns
