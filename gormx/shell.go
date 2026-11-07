@@ -27,6 +27,20 @@ type SingletonRepo[T Model] = src.SingletonRepo[T]
 type SoftDeleteModel = src.SoftDeleteModel
 type TXFunc = src.TXFunc
 
+// EscapeLike 转义 LIKE 通配符（gormx #114）：参数化 SQL 只防注入不防
+// **通配符注入**——用户输入的 % 会把「包含匹配」变成全匹配、_ 变单字符通配。
+// 转义顺序即优先级：先反斜杠后 % 再 _。
+var EscapeLike = src.EscapeLike
+
+// LikeContains 转义后包裹为 %s%（包含匹配），配合 col LIKE ? 使用。
+var LikeContains = src.LikeContains
+
+// LikePrefix 转义后包裹为 s%（前缀匹配）。
+var LikePrefix = src.LikePrefix
+
+// LikeSuffix 转义后包裹为 %s（后缀匹配）。
+var LikeSuffix = src.LikeSuffix
+
 var ErrAdvisoryLockUnsupported = src.ErrAdvisoryLockUnsupported
 var InTransactionContext = src.InTransactionContext
 var IsBusyErr = src.IsBusyErr

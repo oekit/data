@@ -51,6 +51,15 @@ type StatsProvider = src.StatsProvider
 // 判定与写入必须原子完成（Get + Set 两步在并发下会双双判「不存在」而覆盖彼此）。
 type NXSetter[T any] = src.NXSetter[T]
 
+// BatchEntry 批量读取的单键结果（pkg#238）：Hit 区分「nil 真值命中」与「缺席」。
+// BatchGetter.MGet 的 map 只含命中键（nil 值命中与缺席在 map 里不可区分），
+// 本类型给每个请求键一条带 Hit 标志的结果。
+type BatchEntry[T any] = src.BatchEntry[T]
+
+// BatchHitGetter 可选能力接口：批量读取时区分「未命中」与「命中但值为 nil」
+// （pkg#238）——HitGetter 的批量形态（LocalCache：MGetEx）。
+type BatchHitGetter[T any] = src.BatchHitGetter[T]
+
 // SourceInjector 可选能力接口：按调用注入回源函数（pkg v0.24.0，pkg#77）——
 // 回源依赖 key / 依赖调用上下文的缓存（token/凭据/租户级）不必在缓存外再包
 // 一层 key→source 注册表，且单飞语义不变。
