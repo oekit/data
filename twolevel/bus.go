@@ -3,6 +3,7 @@ package twolevel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
 	"github.com/oekit/concurrency/async"
@@ -32,14 +33,15 @@ type busMessage struct {
 // 发布是 best-effort：失败记日志不阻断删除（远端实例靠 TTL 兜底）。
 //
 // 生命周期由 TwoLevelCache 管理（WithBus 挂接 + Start/Close），不单独
-// Start/Stop；单生命周期（Close 后复用需新建 Bus——ctx watcher 的 done
-// 通道一次性）。
+// Start/Stop；单生命周期：stop 后再 start 直接报错拒绝（ctx watcher 的
+// done 通道一次性，复用需新建 Bus）。
 type Bus struct {
 	client  *redisx.Client
 	channel string
 
 	mu        sync.Mutex
 	started   bool
+	stopped   bool
 	pubsub    *redis.PubSub
 	done      chan struct{}
 	closeOnce sync.Once
@@ -54,12 +56,18 @@ func NewBus(client *redisx.Client, channel string) *Bus {
 	return &Bus{client: client, channel: channel, done: make(chan struct{})}
 }
 
-// start 启动订阅循环（幂等；ctx 取消或 stop 均会结束循环）。
-func (b *Bus) start(ctx context.Context, onEvict func(key string)) {
+// start 启动订阅循环（运行中幂等 no-op）。stop 后调用返回错误——done
+// 通道一次性，重启只会得到一个 ctx 取消监听已静默失效的循环（watcher
+// 立即走已关闭的 done 分支退出，此后 ctx 取消不再触发 stop），必须拒绝。
+func (b *Bus) start(ctx context.Context, onEvict func(key string)) error {
 	b.mu.Lock()
+	if b.stopped {
+		b.mu.Unlock()
+		return errors.New("twolevel: bus 已停止（单生命周期，复用需新建 Bus）")
+	}
 	if b.started || b.client == nil {
 		b.mu.Unlock()
-		return
+		return nil
 	}
 	b.started = true
 	pubsub := b.client.Subscribe(ctx, b.channel)
@@ -98,6 +106,7 @@ func (b *Bus) start(ctx context.Context, onEvict func(key string)) {
 			}
 		}
 	})
+	return nil
 }
 
 // publish 发布失效消息（best-effort）。
@@ -116,7 +125,8 @@ func (b *Bus) publish(ctx context.Context, keys []string) {
 	}
 }
 
-// stop 停止订阅循环。
+// stop 停止订阅循环。置 stopped 拒绝后续 start（done 通道一次性，见
+// start 的注释）；重复调用幂等。
 func (b *Bus) stop() {
 	b.mu.Lock()
 	if b.pubsub != nil {
@@ -124,6 +134,7 @@ func (b *Bus) stop() {
 		b.pubsub = nil
 	}
 	b.started = false
+	b.stopped = true
 	b.mu.Unlock()
 	// done 关闭一次性（Close 后复用需新建 Bus，见类型文档）
 	b.closeOnce.Do(func() { close(b.done) })

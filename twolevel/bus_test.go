@@ -122,6 +122,28 @@ func TestBusCloseIdempotent(t *testing.T) {
 	}
 }
 
+// Bus 单生命周期（#113）：stop 后再 Start 必须显式报错拒绝——done 通道
+// 已一次性关闭，静默重启只会得到一个 ctx 取消监听失效的循环（watcher
+// 立即走已关闭的 done 分支退出，此后 ctx 取消不再触发 stop）。运行中
+// 重复 Start 保持幂等 no-op 不报错。
+func TestBusRejectsStartAfterStop(t *testing.T) {
+	ctx := context.Background()
+	mr := miniredis.RunT(t)
+	cacheA, _, _ := newBussedCache(t, mr, "a") // 已 Start（含 t.Cleanup Close）
+
+	// 运行中重复 Start：幂等 no-op
+	if err := cacheA.Start(ctx); err != nil {
+		t.Fatalf("运行中重复 Start 应幂等: %v", err)
+	}
+	if err := cacheA.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	// stop 后再 Start：必须显式拒绝（复用需新建 Bus）
+	if err := cacheA.Start(ctx); err == nil {
+		t.Fatal("stop 后再 Start 必须报错：done 通道已关闭，重启的 ctx 监听会静默失效")
+	}
+}
+
 // 无 bus 的实例 Del 不广播也能正常两级删除（广播是可选件）。
 func TestDelWithoutBusStillWorks(t *testing.T) {
 	ctx := context.Background()
