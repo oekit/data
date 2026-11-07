@@ -1,3 +1,10 @@
+## [v0.20.3] — 2026-11-07
+
+- fix(twolevel): Bus stop 后 start 直接返回错误——done 通道已关闭的静默重启窗口封死，TwoLevelCache.Start 透传该错误（#113）
+- fix(cached): GetByIDs 的 MGet 命中判定补 v==nil——契约外后端的 null marker 不再以 nil 实体塞进结果 map，按缺席回退点读路径（#114）
+
+关联问题单：data#113、data#114。
+
 ## [v0.20.2] — 2026-11-06
 
 - build: 矩阵依赖地板对齐（第二轮发版后置）
