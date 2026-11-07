@@ -17,7 +17,10 @@ import (
 //
 // 返回 map 中只包含找到的实体；未找到的 ID **不在 map 里且不算错误**
 // （与点读缓存的 (nil, nil) 双关语义一致，第二次批量查询同类 ID 时
-// 全部走缓存，仓储零调用）。单个 ID 的仓储硬错误不阻断其余 ID，
+// 全部走缓存，仓储零调用）。MGet 命中判定同时要求非 nil 真值——契约外
+// 后端若把 null marker 以 (key, nil) 形式作为命中返回（BatchGetter 契约
+// 禁止，见 cache 包），按缺席回退点读路径，绝不把 nil 实体塞进 map。
+// 单个 ID 的仓储硬错误不阻断其余 ID，
 // 以 errors.Join 聚合返回——调用方拿到「部分成功 + 聚合错误」。
 func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[ID]*T, error) {
 	out := make(map[ID]*T, len(ids))
@@ -56,7 +59,11 @@ func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[I
 			} else {
 				pending = pending[:0]
 				for _, id := range unique {
-					if v, hit := hits[keyOf[id]]; hit {
+					// 命中判定必须同时要求非 nil 真值（#114）：契约外后端把
+					// null marker 以 (key, nil) 形式作为命中返回时，不得把
+					// nil 实体塞进结果 map——按缺席回退点读路径（marker 在
+					// GetOrLoad 短路，不会重复回源）。
+					if v, hit := hits[keyOf[id]]; hit && v != nil {
 						out[id] = v
 					} else {
 						pending = append(pending, id)
