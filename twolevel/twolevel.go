@@ -182,6 +182,11 @@ func (c *TwoLevelCache[T]) GetOrLoad(ctx context.Context, key string) (*T, error
 // 批量（两层都不具备时退化为逐键读），L2 命中逐键回填 L1。缺席语义与
 // (nil, nil) 双关一致：不存在与 null marker 一律缺席——L2 的 marker 短路
 // 不参与 MGet（纯读），缺席键的消费方应回退 GetOrLoad。
+//
+// 两条路径对 nil 真值条目同算命中（键进结果 map、值为 nil、不回源 L2），
+// 口径与 LocalCache.MGet 一致（data#123）：非批量路径优先经 HitGetter
+// （GetEx）的 hit 标志判定；L1 连 HitGetter 也不具备时退化为值非空判定
+// （Get 的 (nil, nil) 双关无法区分 nil 真值与 miss，nil 只能当 miss 回源）。
 func (c *TwoLevelCache[T]) MGet(ctx context.Context, keys ...string) (map[string]*T, error) {
 	out := make(map[string]*T, len(keys))
 	var misses []string
@@ -200,12 +205,28 @@ func (c *TwoLevelCache[T]) MGet(ctx context.Context, keys ...string) (map[string
 			}
 		}
 	} else {
+		// 命中判定与批量路径同口径（data#123）：hit 而非值非空。
+		hg, hasHit := c.local.(cache.HitGetter[T])
 		for _, k := range keys {
-			v, err := c.local.Get(ctx, k)
-			if err != nil {
-				return nil, err
+			var (
+				v   *T
+				hit bool
+			)
+			if hasHit {
+				var err error
+				v, hit, err = hg.GetEx(ctx, k)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				var err error
+				v, err = c.local.Get(ctx, k)
+				if err != nil {
+					return nil, err
+				}
+				hit = v != nil
 			}
-			if v != nil {
+			if hit {
 				out[k] = v
 			} else {
 				misses = append(misses, k)
