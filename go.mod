@@ -8,7 +8,7 @@ require (
 	github.com/oekit/concurrency v0.28.3
 	github.com/oekit/gormx v0.11.5
 	github.com/oekit/logx v0.8.8
-	github.com/oekit/pkg v0.37.3
+	github.com/oekit/pkg v0.37.4
 	github.com/oekit/redisx v0.11.3
 	github.com/oekit/timertask v0.2.12
 	github.com/redis/go-redis/v9 v9.23.0
