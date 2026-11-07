@@ -89,3 +89,12 @@ var ErrNoValue = src.ErrNoValue
 func NewSingleValue[T any](cfg src.SingleValueConfig[T]) *src.SingleValue[T] {
 	return src.NewSingleValue(cfg)
 }
+
+// ---- 批量命中形态（pkg v0.37.4 #238）----
+
+// BatchEntry 是批量读取的单键结果（pkg#238）：Hit 区分「nil 真值命中」与「缺席」。
+type BatchEntry[T any] = src.BatchEntry[T]
+
+// BatchHitGetter 是可选能力接口：批量读取时区分「未命中」与「命中但值为
+// nil」（pkg#238）——HitGetter 的批量形态（LocalCache：MGetEx）。
+type BatchHitGetter[T any] = src.BatchHitGetter[T]
