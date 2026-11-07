@@ -1,5 +1,11 @@
 
 
+## [v0.20.6] — 2026-11-08
+
+### chore: v0.20.5 干净重发（tag 快照缺段，代码与 v0.20.5 完全一致）
+
+v0.20.5 tag 打在了 CHANGELOG 段合入前（protect-release-tags 不可移动）；消费方请使用 v0.20.6。
+
 ## [v0.20.5] — 2026-11-08
 
 ### feat(shell): 门面壳同步新符号——cache 补 BatchEntry/BatchHitGetter（pkg#238），gormx 补 EscapeLike/LikeContains/LikePrefix/LikeSuffix（gormx#114）
