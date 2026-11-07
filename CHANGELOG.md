@@ -1,3 +1,14 @@
+
+
+## [v0.20.4] — 2026-11-08
+
+- fix(twolevel): MGet 非批量路径 nil 真值条目误判 miss——与批量路径口径对齐（#123）
+- feat(shell): 门面壳同步源仓新增导出符号——cache SingleValue 形态（pkg#213）、gormx Page/SavePatch/SubqueryIn/日志脱敏（gormx#80-#106）、timertask Clock 注入
+- build: 终局地板/版本行对齐第二轮（concurrency v0.28.1 等最新已发布）
+- docs: 版本引用对齐最新 tag（refresh_versions）
+
+关联问题单：data#123。
+
 ## [v0.20.3] — 2026-11-07
 
 - fix(twolevel): Bus stop 后 start 直接返回错误——done 通道已关闭的静默重启窗口封死，TwoLevelCache.Start 透传该错误（#113）
