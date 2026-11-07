@@ -74,6 +74,69 @@ func TestGetByIDsJoinsPerIDErrors(t *testing.T) {
 	}
 }
 
+// nilHitCache 模拟契约外后端（#114 的防御对象）：MGet 把缺席键（null
+// marker）以 (key, nil)「命中」形式返回——BatchGetter 契约禁止，但
+// 消费方必须防御（nil 实体入 map 轻则语义混乱，重则解引用 panic）。
+type nilHitCache struct {
+	dcache.CacheAside[user]
+}
+
+func (n *nilHitCache) MGet(ctx context.Context, keys ...string) (map[string]*user, error) {
+	bg, ok := n.CacheAside.(dcache.BatchGetter[user])
+	if !ok {
+		panic("nilHitCache 的内层必须具备 MGet 能力")
+	}
+	hits, err := bg.MGet(ctx, keys...)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range keys {
+		if _, ok := hits[k]; !ok {
+			hits[k] = nil // 契约外：null marker 以命中形式返回
+		}
+	}
+	return hits, nil
+}
+
+// 契约外后端把 null marker 以 (key, nil) 命中返回：GetByIDs 不得把 nil
+// 实体塞进结果 map——按缺席回退点读路径，marker 在 GetOrLoad 短路，
+// 仓储零新增调用。
+func TestGetByIDsIgnoresNilMGetHits(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	repo.byID[1] = &user{ID: 1, Name: "a"}
+	ctx := context.Background()
+
+	cr := cached.NewRepository[user, int64](repo,
+		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
+			return &nilHitCache{CacheAside: userCacheFactory(src)}
+		},
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }),
+	)
+
+	// 预热：1 的真值与 99 的 null marker 均已进点读缓存
+	if _, err := cr.GetByID(ctx, 1); err != nil {
+		t.Fatalf("warm GetByID(1): %v", err)
+	}
+	if _, err := cr.GetByID(ctx, 99); !errors.Is(err, crud.ErrNotFound) {
+		t.Fatalf("warm GetByID(99): %v, want ErrNotFound", err)
+	}
+
+	got, err := cr.GetByIDs(ctx, []int64{1, 99})
+	if err != nil {
+		t.Fatalf("GetByIDs: %v", err)
+	}
+	if len(got) != 1 || got[1] == nil || got[1].Name != "a" {
+		t.Fatalf("map = %v, want 仅含 1 的真值（nil 命中不得入 map）", got)
+	}
+	if _, present := got[99]; present {
+		t.Fatal("99 的 nil 命中不得出现在结果 map 里")
+	}
+	// 99 回退点读路径时命中 null marker 短路，仓储零新增
+	if n := repo.count("GetByID"); n != 2 {
+		t.Fatalf("repo calls = %d, want 2（预热各一次，marker 短路不再回源）", n)
+	}
+}
+
 // --- bloom 防穿透可选件 ---
 
 type fakeBloom struct {
