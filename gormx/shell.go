@@ -65,3 +65,18 @@ var DeleteBySubquery = src.DeleteBySubquery
 var WithLogger = src.WithLogger
 
 var WithRedactColumns = src.WithRedactColumns
+
+// ---- 模糊查询参数原语（gormx v0.11.5 #114）----
+
+// EscapeLike 转义 LIKE 通配符（先 \ 后 % 再 _，顺序即优先级）；SQLite 须显式
+// ESCAPE 子句（见上游 gormx.EscapeLike godoc）。
+func EscapeLike(s string) string { return src.EscapeLike(s) }
+
+// LikeContains 转义后包裹为 %s%（包含匹配）。
+func LikeContains(s string) string { return src.LikeContains(s) }
+
+// LikePrefix 转义后包裹为 s%（前缀匹配）。
+func LikePrefix(s string) string { return src.LikePrefix(s) }
+
+// LikeSuffix 转义后包裹为 %s（后缀匹配）。
+func LikeSuffix(s string) string { return src.LikeSuffix(s) }
