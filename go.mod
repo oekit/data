@@ -6,10 +6,10 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/oekit/concurrency v0.28.0
-	github.com/oekit/gormx v0.11.2
-	github.com/oekit/logx v0.8.5
-	github.com/oekit/pkg v0.37.0
-	github.com/oekit/redisx v0.11.1
+	github.com/oekit/gormx v0.11.3
+	github.com/oekit/logx v0.8.6
+	github.com/oekit/pkg v0.37.1
+	github.com/oekit/redisx v0.11.2
 	github.com/oekit/timertask v0.2.11
 	github.com/redis/go-redis/v9 v9.23.0
 	gorm.io/gorm v1.31.2
