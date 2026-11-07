@@ -1,5 +1,11 @@
 
 
+## [v0.20.5] — 2026-11-08
+
+### feat(shell): 门面壳同步新符号——cache 补 BatchEntry/BatchHitGetter（pkg#238），gormx 补 EscapeLike/LikeContains/LikePrefix/LikeSuffix（gormx#114）
+
+纯别名转发，语义单源在上游（pkg v0.37.4 / gormx v0.11.5）。
+
 ## [v0.20.4] — 2026-11-08
 
 - fix(twolevel): MGet 非批量路径 nil 真值条目误判 miss——与批量路径口径对齐（#123）
