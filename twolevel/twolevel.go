@@ -19,8 +19,10 @@ type TwoLevelCache[T any] struct {
 	local  cache.Cache[T]
 	remote cache.CacheAside[T]
 	bus    *Bus
+	busSub *busSubscription // 本实例自己的订阅（#140：Close 只关自己的）
 
 	closeOnce sync.Once
+	startOnce sync.Once
 }
 
 // 编译期接口契约：组合体必须完整满足 CacheAside。
@@ -64,28 +66,33 @@ func NewTwoLevelCache[T any](
 	return &TwoLevelCache[T]{local: local, remote: remote, bus: cfg.bus}, nil
 }
 
-// Start 启动失效广播订阅循环（无 bus 时为 no-op；运行中重复调用幂等）。
-// 调用方负责在应用生命周期内持有 ctx；Close 或 ctx 取消都会停止循环。
+// Start 建立本实例自己的失效广播订阅（无 bus 时为 no-op；运行中重复调用
+// 幂等——重复 Start 不追加订阅，Close 后再 Start 建立全新订阅，互不影响）。
+// 调用方负责在应用生命周期内持有 ctx；Close 或 ctx 取消都只停止本实例的
+// 订阅——共享同一 Bus 的其他实例不受影响（#140）。
 //
 // 注意：订阅错误本身不报错——go-redis 的订阅错误是异步的，Redis 不可达时
-// 循环会静默重连（Channel 自带重连）；可观测性靠 Bus 内部日志。唯一的
-// 同步错误是 Bus 单生命周期违规：Close 后再 Start 直接返回错误（done
-// 通道一次性，复用需新建 Bus 并 WithBus 重新挂接）。
+// 循环会静默重连（Channel 自带重连）；可观测性靠 Bus 内部日志。
 func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
 	if c.bus != nil {
-		if err := c.bus.start(ctx, c.evictLocal); err != nil {
+		var err error
+		c.startOnce.Do(func() {
+			c.busSub, err = c.bus.acquire(ctx, c.evictLocal)
+		})
+		if err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Close 停止订阅循环（若有）并透传 L1 的 Close(ctx) error（Once 幂等，
-// 重复调用安全；L1 不实现 Close 时为 no-op）。
+// Close 关闭本实例自己的广播订阅（若有；共享同一 Bus 的其他实例不受
+// 影响，#140）并透传 L1 的 Close(ctx) error（Once 幂等，重复调用安全；
+// L1 不实现 Close 时为 no-op）。
 func (c *TwoLevelCache[T]) Close(ctx context.Context) error {
 	c.closeOnce.Do(func() {
-		if c.bus != nil {
-			c.bus.stop()
+		if c.busSub != nil {
+			c.busSub.release()
 		}
 	})
 	if lc, ok := c.local.(interface{ Close(context.Context) error }); ok {

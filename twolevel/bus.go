@@ -32,63 +32,50 @@ type busMessage struct {
 // 下一次写路径广播驱逐或 TTL 兜底——与 cache-aside 的整体语义一致。
 // 发布是 best-effort：失败记日志不阻断删除（远端实例靠 TTL 兜底）。
 //
-// 生命周期由 TwoLevelCache 管理（WithBus 挂接 + Start/Close），不单独
-// Start/Stop；单生命周期：stop 后再 start 直接报错拒绝（ctx watcher 的
-// done 通道一次性，复用需新建 Bus）。
+// 生命周期（#140）：Bus 只是「频道 + 连接」的装配件，可被多个
+// TwoLevelCache 经 WithBus 共享——每个实例 Start 时 acquire 自己的订阅
+// （独立 goroutine / 独立 ctx watcher），Close 只关闭自己的订阅，不影响
+// 其他持有者（旧实现是单一订阅 + 全局 stop，任一实例 Close 把共享 Bus
+// 整个杀掉，其余实例的 L1 失效广播无声死亡）。
 type Bus struct {
 	client  *redisx.Client
 	channel string
-
-	mu        sync.Mutex
-	started   bool
-	stopped   bool
-	pubsub    *redis.PubSub
-	done      chan struct{}
-	closeOnce sync.Once
 }
 
-// 编译期守卫：Bus 依赖 sync.Once/closeOnce。
-var _ = sync.Once{}
+// busSubscription 是一次 acquire 得到的独立订阅：生命周期只属于发起
+// acquire 的那个 TwoLevelCache。
+type busSubscription struct {
+	pubsub *redis.PubSub
+	cancel context.CancelFunc
+	once   sync.Once
+}
 
 // NewBus 创建失效广播。client 用于 Publish 与 Subscribe（redisx.Client
 // 的键转换规则对两端一致）；channel 建议按实体类型/键空间划分。
 func NewBus(client *redisx.Client, channel string) *Bus {
-	return &Bus{client: client, channel: channel, done: make(chan struct{})}
+	return &Bus{client: client, channel: channel}
 }
 
-// start 启动订阅循环（运行中幂等 no-op）。stop 后调用返回错误——done
-// 通道一次性，重启只会得到一个 ctx 取消监听已静默失效的循环（watcher
-// 立即走已关闭的 done 分支退出，此后 ctx 取消不再触发 stop），必须拒绝。
-func (b *Bus) start(ctx context.Context, onEvict func(key string)) error {
-	b.mu.Lock()
-	if b.stopped {
-		b.mu.Unlock()
-		return errors.New("twolevel: bus 已停止（单生命周期，复用需新建 Bus）")
+// acquire 建立一条属于调用方的独立订阅（#140）：每个 TwoLevelCache 的
+// Start 各自 acquire（各自的 onEvict、各自的 ctx watcher），Close 时
+// release 自己的——共享同一 Bus 的实例互不影响。
+func (b *Bus) acquire(parent context.Context, onEvict func(key string)) (*busSubscription, error) {
+	if b.client == nil {
+		// 无 client 的 Bus（零值/显式 nil client）在 TwoLevelCache 装配层
+		// 已拒绝；这里兜底防直接调用。
+		return nil, errors.New("twolevel: bus 未初始化（NewBus 的 client 不得为 nil）")
 	}
-	if b.started || b.client == nil {
-		b.mu.Unlock()
-		return nil
-	}
-	b.started = true
+	ctx, cancel := context.WithCancel(parent)
 	pubsub := b.client.Subscribe(ctx, b.channel)
-	b.pubsub = pubsub
-	b.mu.Unlock()
 
-	// redis.PubSub.Channel() 自带断线重连；Close 后 channel 关闭，循环退出
-	msgs := pubsub.Channel()
-
-	// ctx 取消 watcher：go-redis 的 Subscribe(ctx) 只用 ctx 约束订阅命令，
-	// Channel() 会一直收到 Close 为止——文档承诺的"ctx 取消停止循环"
-	// 由此兑现；显式 stop（Close）经 done 通道让 watcher 退出。
+	s := &busSubscription{pubsub: pubsub, cancel: cancel}
+	// ctx 取消（调用方 ctx 或 release 的 cancel）⇒ 订阅收尾；release 幂等
+	go func() {
+		<-ctx.Done()
+		s.release()
+	}()
 	async.GoSafe(func() {
-		select {
-		case <-ctx.Done():
-			b.stop()
-		case <-b.done:
-		}
-	})
-
-	async.GoSafe(func() {
+		msgs := pubsub.Channel()
 		for msg := range msgs {
 			var m busMessage
 			if err := json.Unmarshal([]byte(msg.Payload), &m); err != nil {
@@ -106,7 +93,7 @@ func (b *Bus) start(ctx context.Context, onEvict func(key string)) error {
 			}
 		}
 	})
-	return nil
+	return s, nil
 }
 
 // publish 发布失效消息（best-effort）。
@@ -125,17 +112,11 @@ func (b *Bus) publish(ctx context.Context, keys []string) {
 	}
 }
 
-// stop 停止订阅循环。置 stopped 拒绝后续 start（done 通道一次性，见
-// start 的注释）；重复调用幂等。
-func (b *Bus) stop() {
-	b.mu.Lock()
-	if b.pubsub != nil {
-		_ = b.pubsub.Close()
-		b.pubsub = nil
-	}
-	b.started = false
-	b.stopped = true
-	b.mu.Unlock()
-	// done 关闭一次性（Close 后复用需新建 Bus，见类型文档）
-	b.closeOnce.Do(func() { close(b.done) })
+// release 关闭本订阅（幂等）：cancel ctx（令订阅命令与 watcher 退出）并
+// Close pubsub。只影响本订阅，不影响同一 Bus 的其他持有者（#140）。
+func (s *busSubscription) release() {
+	s.once.Do(func() {
+		s.cancel()
+		_ = s.pubsub.Close()
+	})
 }

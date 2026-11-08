@@ -122,26 +122,97 @@ func TestBusCloseIdempotent(t *testing.T) {
 	}
 }
 
-// Bus 单生命周期（#113）：stop 后再 Start 必须显式报错拒绝——done 通道
-// 已一次性关闭，静默重启只会得到一个 ctx 取消监听失效的循环（watcher
-// 立即走已关闭的 done 分支退出，此后 ctx 取消不再触发 stop）。运行中
-// 重复 Start 保持幂等 no-op 不报错。
-func TestBusRejectsStartAfterStop(t *testing.T) {
+// Bus 订阅生命周期（#140 重构）：每实例 acquire 独立订阅——运行中重复
+// Start 幂等；Close 只关自己的订阅，Close 后再 Start 建立全新订阅（不再
+// 有「单生命周期」拒绝）；共享同一 Bus 实例的两个 cache，A Close 不影响
+// B 的广播链路（#140 回归钉）。
+func TestBusSubscriptionLifecyclePerOwner(t *testing.T) {
 	ctx := context.Background()
 	mr := miniredis.RunT(t)
-	cacheA, _, _ := newBussedCache(t, mr, "a") // 已 Start（含 t.Cleanup Close）
 
-	// 运行中重复 Start：幂等 no-op
+	// 两个实例显式共享同一个 Bus 实例（#140 的合法装配）
+	rdb, err := redisx.NewClientFromAddr(mr.Addr(), "", 0)
+	if err != nil {
+		t.Fatalf("redisx client: %v", err)
+	}
+	shared := twolevel.NewBus(rdb, busChannel)
+
+	localA := datacache.NewLocalCache(datacache.LocalConfig[int]{TTL: time.Minute})
+	remoteA := redisxcache.NewRedisCache(redis.NewClient(&redis.Options{Addr: mr.Addr()}),
+		redisxcache.RedisConfig[int]{Prefix: "a2:", TTL: time.Minute})
+	cacheA, err := twolevel.NewTwoLevelCache[int](localA, remoteA, twolevel.WithBus[int](shared))
+	if err != nil {
+		t.Fatalf("NewTwoLevelCache A: %v", err)
+	}
+	if err := cacheA.Start(ctx); err != nil {
+		t.Fatalf("Start A: %v", err)
+	}
+
+	// 运行中重复 Start：幂等（不追加订阅）
 	if err := cacheA.Start(ctx); err != nil {
 		t.Fatalf("运行中重复 Start 应幂等: %v", err)
 	}
+
+	// B 也挂同一个共享 Bus
+	cacheB, localB := newBussedCacheShared(t, mr, shared, "b2")
+
+	// 正控制：B.Del 的广播驱逐 A 的 L1
+	v := 7
+	if err := localA.Set(ctx, "sk", &v); err != nil {
+		t.Fatalf("A L1 Set: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_ = cacheB.Del(context.Background(), "sk")
+		if ok, _ := localA.Exists(context.Background(), "sk"); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("正控制失败：共享 Bus 下 B.Del 未能驱逐 A 的 L1")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// A Close：只关 A 自己的订阅；B 的广播链路必须继续工作（#140 回归）
 	if err := cacheA.Close(ctx); err != nil {
-		t.Fatalf("Close: %v", err)
+		t.Fatalf("A Close: %v", err)
 	}
-	// stop 后再 Start：必须显式拒绝（复用需新建 Bus）
-	if err := cacheA.Start(ctx); err == nil {
-		t.Fatal("stop 后再 Start 必须报错：done 通道已关闭，重启的 ctx 监听会静默失效")
+	localB.Set(ctx, "postA", &v)
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		_ = cacheB.Del(context.Background(), "postA")
+		if ok, _ := localB.Exists(context.Background(), "postA"); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("A Close 后 B 自己的订阅必须仍然工作（#140：共享 Bus 不得被任一实例 Close 杀掉）")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
+
+	// Close 后再 Start：建立全新订阅（新语义，不再拒绝）
+	if err := cacheA.Start(ctx); err != nil {
+		t.Fatalf("Close 后再 Start 应建立全新订阅: %v", err)
+	}
+}
+
+// newBussedCacheShared：与 newBussedCache 同构，但挂调用方给的共享 Bus。
+func newBussedCacheShared(t *testing.T, mr *miniredis.Miniredis, shared *twolevel.Bus, prefix string) (*twolevel.TwoLevelCache[int], *datacache.LocalCache[int]) {
+	ctx := context.Background()
+	goredis := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	local := datacache.NewLocalCache(datacache.LocalConfig[int]{TTL: time.Minute})
+	remote := redisxcache.NewRedisCache(goredis, redisxcache.RedisConfig[int]{
+		Prefix: prefix + ":", TTL: time.Minute,
+	})
+	c, err := twolevel.NewTwoLevelCache[int](local, remote, twolevel.WithBus[int](shared))
+	if err != nil {
+		t.Fatalf("NewTwoLevelCache: %v", err)
+	}
+	if err := c.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close(context.Background()) })
+	return c, local
 }
 
 // 无 bus 的实例 Del 不广播也能正常两级删除（广播是可选件）。
