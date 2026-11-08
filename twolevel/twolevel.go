@@ -21,8 +21,10 @@ type TwoLevelCache[T any] struct {
 	bus    *Bus
 	busSub *busSubscription // 本实例自己的订阅（#140：Close 只关自己的）
 
-	closeOnce sync.Once
-	startOnce sync.Once
+	// mu 守护 busSub 的建立与注销：运行中重复 Start 幂等（已有订阅不追加），
+	// Close 后 busSub 归 nil，再次 Start 建立全新订阅（startOnce 无法表达
+	// 「可重复的 once」，Close→Start 重建必须靠状态复位）。
+	mu sync.Mutex
 }
 
 // 编译期接口契约：组合体必须完整满足 CacheAside。
@@ -74,15 +76,19 @@ func NewTwoLevelCache[T any](
 // 注意：订阅错误本身不报错——go-redis 的订阅错误是异步的，Redis 不可达时
 // 循环会静默重连（Channel 自带重连）；可观测性靠 Bus 内部日志。
 func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
-	if c.bus != nil {
-		var err error
-		c.startOnce.Do(func() {
-			c.busSub, err = c.bus.acquire(ctx, c.evictLocal)
-		})
-		if err != nil {
-			return err
-		}
+	if c.bus == nil {
+		return nil
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.busSub != nil {
+		return nil // 运行中重复 Start 幂等：已有订阅，不追加
+	}
+	s, err := c.bus.acquire(ctx, c.evictLocal)
+	if err != nil {
+		return err
+	}
+	c.busSub = s
 	return nil
 }
 
@@ -90,11 +96,12 @@ func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
 // 影响，#140）并透传 L1 的 Close(ctx) error（Once 幂等，重复调用安全；
 // L1 不实现 Close 时为 no-op）。
 func (c *TwoLevelCache[T]) Close(ctx context.Context) error {
-	c.closeOnce.Do(func() {
-		if c.busSub != nil {
-			c.busSub.release()
-		}
-	})
+	c.mu.Lock()
+	if c.busSub != nil {
+		c.busSub.release() // release 内部 sync.Once 幂等，重复 Close 安全
+		c.busSub = nil     // 复位：Close 后再 Start 可建立全新订阅（#140）
+	}
+	c.mu.Unlock()
 	if lc, ok := c.local.(interface{ Close(context.Context) error }); ok {
 		return lc.Close(ctx)
 	}
