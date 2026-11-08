@@ -64,10 +64,15 @@ func (r *CachedRepository[T, ID]) bloomGate(ctx context.Context, id ID) bool {
 // bloomAdd 把新 born 的实体 ID 写入 bloom（best-effort，失败上报不阻断）。
 // 仅在 Create 路径调用（Update/Delete 不动 bloom——只增不减的过滤器
 // 对已存在元素重复 Add 无害但对语义无益）。
+//
+// 与 invalidate 同理用 WithoutCancel 派生 ctx（#141）：写已提交后再补录
+// bloom 不受请求取消殃及——丢失 Add 会让后续点读把存在的 ID 误判为
+// 「绝对不存在」而多打 DB（性能退化，非正确性事故）。
 func (r *CachedRepository[T, ID]) bloomAdd(ctx context.Context, ids []ID) {
 	if r.cfg.bloom == nil {
 		return
 	}
+	ctx = context.WithoutCancel(ctx)
 	for _, id := range ids {
 		if err := r.cfg.bloom.Add(ctx, r.bloomItem(id)); err != nil {
 			r.report(ctx, "bloom", nil, err)

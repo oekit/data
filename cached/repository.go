@@ -583,7 +583,16 @@ func defaultIDAccessor[T any, ID comparable]() (func(*T) ID, bool) {
 
 // invalidate 写库成功后的失效：删实体键（best-effort）+ bump 查询版本。
 // 失败不回滚写操作，经 onError 上报，TTL 兜底。
+//
+// 失效用 WithoutCancel 派生（#141）：失效发生在写已提交之后，是第二次
+// I/O，不应再受请求 ctx 约束——请求在提交瞬间被取消（客户端断开 /
+// deadline 到期 / defer cancel）若吞掉失效，缓存残留写前旧值且查询版本
+// 未 bump，整个 scope 的查询缓存一起脏到 TTL，且默认配置下完全静默。
+// WithoutCancel 收进本函数一处，全部调用点（含未来新增）无需各自记得；
+// 口径与 RunInTx 提交后的失效一致（applyCollected 处的 WithoutCancel
+// 由此变为冗余但无害的双保险）。
 func (r *CachedRepository[T, ID]) invalidate(ctx context.Context, scope string, ids []ID) {
+	ctx = context.WithoutCancel(ctx)
 	if len(ids) > 0 {
 		keys := make([]string, 0, len(ids))
 		prefix := r.idKeyPrefix(scope)
