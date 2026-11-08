@@ -116,9 +116,9 @@ func TestInvalidateSurvivesCancelledRequestCtx(t *testing.T) {
 	entityQ := dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})
 	page := dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})
 	versions := &ctxAwareVersions{inner: dcache.NewLocalCache(dcache.LocalConfig[string]{TTL: time.Hour})}
-	qc, err := cached.NewQueryCache[user](entityQ, page, versions, 5*time.Minute)
-	if err != nil {
-		t.Fatalf("NewQueryCache: %v", err)
+	qc, qcErr := cached.NewQueryCache[user](entityQ, page, versions, 5*time.Minute)
+	if qcErr != nil {
+		t.Fatalf("NewQueryCache: %v", qcErr)
 	}
 	cr := cached.NewRepository[user, int64](repo,
 		func(src dcache.SourceFunc[user]) dcache.CacheAside[user] {
