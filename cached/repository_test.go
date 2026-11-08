@@ -37,6 +37,11 @@ type fakeRepo[T any] struct {
 
 	// failIDs 按 ID 注入硬错误（模拟仓储对特定行的故障）。
 	failIDs map[int64]error
+
+	// onWriteCommitted 非 nil 时在写操作成功后（返回前）调用——模拟请求
+	// ctx 恰在提交瞬间被取消（客户端断开 / deadline 到期 / defer cancel，
+	// #141 回归钉用）。BatchCreate 经 Create 继承。
+	onWriteCommitted func()
 }
 
 func newFakeRepo[T any](idOf func(*T) int64, events *[]string) *fakeRepo[T] {
@@ -68,6 +73,13 @@ func (f *fakeRepo[T]) log(ev string) {
 	f.mu.Lock()
 	*f.events = append(*f.events, ev)
 	f.mu.Unlock()
+}
+
+// afterWrite 写操作成功返回前的统一钩子（见 onWriteCommitted）。
+func (f *fakeRepo[T]) afterWrite() {
+	if f.onWriteCommitted != nil {
+		f.onWriteCommitted()
+	}
 }
 
 func (f *fakeRepo[T]) GetByID(ctx context.Context, id int64) (*T, error) {
@@ -137,6 +149,7 @@ func (f *fakeRepo[T]) Create(ctx context.Context, entity *T) error {
 		setID(entity, f.idOf, id)
 	}
 	f.byID[id] = entity
+	f.afterWrite()
 	return nil
 }
 
@@ -157,12 +170,14 @@ func (f *fakeRepo[T]) Update(ctx context.Context, entity *T, opts ...crud.Update
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.byID[f.idOf(entity)] = entity
+	f.afterWrite()
 	return 1, nil
 }
 
 func (f *fakeRepo[T]) UpdateFields(ctx context.Context, id int64, fields map[string]any) (int64, error) {
 	f.tick("UpdateFields")
 	f.log("repo:updatefields")
+	f.afterWrite()
 	return 1, nil
 }
 
@@ -175,6 +190,7 @@ func (f *fakeRepo[T]) Delete(ctx context.Context, id int64) (int64, error) {
 		return 0, nil // 0 = 记录不存在（gormx v0.7.0 found 语义，gormx#60）
 	}
 	delete(f.byID, id)
+	f.afterWrite()
 	return 1, nil
 }
 
@@ -190,6 +206,7 @@ func (f *fakeRepo[T]) BatchDelete(ctx context.Context, ids []int64) (int64, erro
 		}
 		delete(f.byID, id)
 	}
+	f.afterWrite()
 	return rows, nil
 }
 
