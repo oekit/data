@@ -1,5 +1,12 @@
 
 
+## [v0.20.8] — 2026-11-08
+
+### fix(twolevel): 共享 Bus 每实例独立订阅——Close 不再殃及其他持有者（#140）
+
+Bus 改装配件（client+channel）：Start acquire 独立订阅、Close 只 release 自己的；
+附带修掉共享场景下第二实例 onEvict 从不注册的隐 bug；Close 后再 Start 建立全新订阅。
+
 ## [v0.20.7] — 2026-11-08
 
 - build: 依赖地板对齐——本版把 oekit 依赖地板抬到各依赖当前最新已发布版本（matrix-tools/scripts/align_floors.py 维护轮）
