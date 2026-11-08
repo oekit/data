@@ -190,9 +190,24 @@ func TestBusSubscriptionLifecyclePerOwner(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Close 后再 Start：建立全新订阅（新语义，不再拒绝）
+	// Close 后再 Start：建立全新订阅（新语义，不再拒绝）。用第三方发布者
+	// 真实验证新订阅在工作——仅断言 Start 返回 nil 抓不住「订阅未重建」
+	// 的静默退化（发布者必须是他实例：Del 会同步删发布者自身 L1，与订阅
+	// 循环无关）。
 	if err := cacheA.Start(ctx); err != nil {
 		t.Fatalf("Close 后再 Start 应建立全新订阅: %v", err)
+	}
+	localA.Set(ctx, "postRestart", &v)
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		_ = cacheB.Del(context.Background(), "postRestart")
+		if ok, _ := localA.Exists(context.Background(), "postRestart"); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close 后再 Start 未重建订阅：重启后的广播驱逐未生效")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
