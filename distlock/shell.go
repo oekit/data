@@ -17,12 +17,16 @@ type LockoutConfig = src.LockoutConfig
 
 var ErrLockNotAcquired = src.ErrLockNotAcquired
 var ErrLockTimeout = src.ErrLockTimeout
+// ErrLockNotHeld 解锁时锁不存在或已易主——本次 Unlock 没有删除任何锁（redisx/distlock #115）。
+var ErrLockNotHeld = src.ErrLockNotHeld
 var WithLock = src.WithLock
 var NewRedisLocker = src.NewRedisLocker
 var NewSemaphore = src.NewSemaphore
 var NewLockout = src.NewLockout
 var WithAutoRenew = src.WithAutoRenew
 var WithGracefulDegradation = src.WithGracefulDegradation
+// WithLogger 注入 per-instance 日志（redisx/distlock #120）；watchdog 告警只进该日志。
+var WithLogger = src.WithLogger
 var WithMaxAutoRenew = src.WithMaxAutoRenew
 var WithOnLock = src.WithOnLock
 var WithOnUnlock = src.WithOnUnlock
