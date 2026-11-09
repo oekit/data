@@ -23,6 +23,9 @@ type TimerTaskOption = src.TimerTaskOption
 // ErrEmptyTaskID 提交的任务没有 ID（任务 ID 必须唯一）。
 var ErrEmptyTaskID = src.ErrEmptyTaskID
 
+// ErrBackendStopped 后端已停机（Start 已返回），实例进入终态。
+var ErrBackendStopped = src.ErrBackendStopped
+
 var NewLocalBackend = src.NewLocalBackend
 var ResolveOptions = src.ResolveOptions
 var WithAtLeastOnce = src.WithAtLeastOnce
