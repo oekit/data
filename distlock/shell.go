@@ -35,3 +35,20 @@ var WithOnUnlock = src.WithOnUnlock
 var WithPrefix = src.WithPrefix
 var WithRenewInterval = src.WithRenewInterval
 var WithRetryInterval = src.WithRetryInterval
+
+// SemaphoreOption 信号量选项（redisx/distlock #126 自动续期家族）。
+type SemaphoreOption = src.SemaphoreOption
+
+// BruteForceGuard 分布式+进程内双实现防爆破锁对（redisx/distlock #128）。
+type BruteForceGuard = src.BruteForceGuard
+
+// GuardConfig 防爆破锁对配置（阈值同源、MemFallback 降级路由）。
+type GuardConfig = src.GuardConfig
+
+var NewBruteForceGuard = src.NewBruteForceGuard
+
+// WithSemaphoreAutoRenew 开启信号量自动续期（watchdog 间隔缺省 slotTTL/2，#126）。
+var WithSemaphoreAutoRenew = src.WithSemaphoreAutoRenew
+var WithSemaphoreRenewInterval = src.WithSemaphoreRenewInterval
+var WithSemaphoreMaxAutoRenew = src.WithSemaphoreMaxAutoRenew
+var WithSemaphoreLogger = src.WithSemaphoreLogger
