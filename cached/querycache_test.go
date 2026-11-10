@@ -130,6 +130,49 @@ func TestGetOneNegativeNotCached(t *testing.T) {
 	}
 }
 
+// List 负结果不缓存（#167）：空页与 GetOne 负结果同口径——普通 Cache 无
+// null marker 通道，空页以正形态落盘会与「有行」不可分；带外写入（行入库
+// 但不经过本仓储 ⇒ 表级版本号不 bump）时 List 必须与 GetOne 结论一致。
+func TestListNegativeNotCached(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	ctx := context.Background()
+	cr := newQueryCachedRepo(repo)
+
+	// 空结果连续 2 次：第二次必须回源（repo.List 调用次数=2）
+	for i := range 2 {
+		items, total, err := cr.List(ctx, crud.NewQuery())
+		if err != nil {
+			t.Fatalf("List #%d: %v", i+1, err)
+		}
+		if len(items) != 0 || total != 0 {
+			t.Fatalf("List #%d = %d items/%d total, want 0/0", i+1, len(items), total)
+		}
+	}
+	if n := repo.count("List"); n != 2 {
+		t.Fatalf("repo.List calls = %d, want 2（负结果不缓存）", n)
+	}
+
+	// 带外写入后 List 立即可见（空页若被缓存，整条 TTL 内新行不可见）
+	repo.mu.Lock()
+	repo.byID[2] = &user{ID: 2, Name: "bob"}
+	repo.mu.Unlock()
+
+	items, total, err := cr.List(ctx, crud.NewQuery())
+	if err != nil {
+		t.Fatalf("List after out-of-band write: %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("List after out-of-band write = %d items/%d total, want 1/1（空页被缓存会让带外行不可见）", len(items), total)
+	}
+	// 同一时刻 GetOne 必须同口径看到该行（结论一致性对照）
+	if got, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 2)); err != nil || got == nil {
+		t.Fatalf("GetOne after out-of-band write = %v, %v; want 命中", got, err)
+	}
+	if n := repo.count("List"); n != 3 {
+		t.Fatalf("repo.List calls after out-of-band write = %d, want 3", n)
+	}
+}
+
 // ForUpdate 读永不缓存：每次都回源（锁读必须拿最权威的数据）。
 func TestForUpdateNeverCached(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)

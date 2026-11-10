@@ -383,6 +383,13 @@ func (r *CachedRepository[T, ID]) List(ctx context.Context, q *crud.Query) ([]T,
 	if err != nil {
 		return nil, 0, err
 	}
+	if len(items) == 0 && total == 0 {
+		// 负结果不入查询缓存（#167，与 doc/README「负结果不缓存」契约对齐）：
+		// 普通 Cache 无 null marker 通道，空页以正形态落盘会与「有行」不可分；
+		// 带外写入（不 bump 表级版本号）时 List 与 GetOne 会结论相反。空页
+		// 每次回源（GetOne 负结果路径同口径：直接上抛、不写缓存）。
+		return items, total, nil
+	}
 	if err := r.cfg.qc.page.SetWithTTL(ctx, key, &QueryPage[T]{Items: items, Total: total}, r.cfg.qc.ttl); err != nil {
 		r.report(ctx, "backfill", []string{key}, err)
 	}

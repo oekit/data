@@ -1,5 +1,15 @@
 
 
+## [v0.20.12] — 2026-11-11
+
+- fix(cached): List 空页不再写入查询缓存——负结果不缓存与 GetOne 口径对齐，带外写入（不 bump 表级版本号）时 List/GetOne 结论一致（#167）
+- fix(twolevel): evictLocal 驱逐失败与 bus 订阅关闭失败补 Warn 信号——错误不再被 `_ =` 吞掉，跨实例失效静默失败可从日志排查（#168）
+- fix(twolevel): bus.acquire 的 ctx 收尾改 async.GoSafe——pubsub.Close() panic 由 PanicHandler 兜住，不再炸整个进程（#169）
+
+现代特性：回归用例以 `for range int` 表达定次循环；errors.Join / min / max 本批改动无贴合点未强用（仓内 errors.Join 既有用法不变）。
+
+关联问题单：data#167、data#168、data#169。
+
 ## [v0.20.11] — 2026-11-10
 
 - - build: 依赖地板对齐（第二轮发版后 floor sync，无代码变更）

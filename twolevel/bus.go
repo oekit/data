@@ -69,11 +69,14 @@ func (b *Bus) acquire(parent context.Context, onEvict func(key string)) (*busSub
 	pubsub := b.client.Subscribe(ctx, b.channel)
 
 	s := &busSubscription{pubsub: pubsub, cancel: cancel}
-	// ctx 取消（调用方 ctx 或 release 的 cancel）⇒ 订阅收尾；release 幂等
-	go func() {
+	// ctx 取消（调用方 ctx 或 release 的 cancel）⇒ 订阅收尾；release 幂等。
+	// 收尾走 async.GoSafe（#169，与下一段订阅循环同口径，AGENTS.md 并发
+	// 硬规则：禁止裸 goroutine 起手）：release 里 pubsub.Close() 若 panic
+	// 由 PanicHandler 兜住，不炸整个进程。
+	async.GoSafe(func() {
 		<-ctx.Done()
 		s.release()
-	}()
+	})
 	async.GoSafe(func() {
 		msgs := pubsub.Channel()
 		for msg := range msgs {
@@ -117,6 +120,10 @@ func (b *Bus) publish(ctx context.Context, keys []string) {
 func (s *busSubscription) release() {
 	s.once.Do(func() {
 		s.cancel()
-		_ = s.pubsub.Close()
+		if err := s.pubsub.Close(); err != nil {
+			// 订阅关闭失败必须留信号（#168，AGENTS.md「所有 error 禁止 `_`
+			// 忽略」）：连接未释放不可见，静默丢弃后泄漏无从排查。
+			twoLevelLog.Warn("two-level bus subscription close failed", logx.ErrKey, err)
+		}
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/oekit/logx"
 	"github.com/oekit/pkg/cache"
 )
 
@@ -111,7 +112,12 @@ func (c *TwoLevelCache[T]) Close(ctx context.Context) error {
 // evictLocal 广播订阅回调：驱逐本实例 L1 副本（含发布者自身消息，幂等）。
 func (c *TwoLevelCache[T]) evictLocal(key string) {
 	// 订阅循环生命周期独立于请求 ctx，驱逐用背景上下文
-	_ = c.local.Del(context.Background(), key)
+	if err := c.local.Del(context.Background(), key); err != nil {
+		// 驱逐失败必须留信号（#168，AGENTS.md「所有 error 禁止 `_` 忽略」）：
+		// 本方法是跨实例失效的唯一执行点，静默失败时该实例继续对外提供
+		// 陈旧 L1 值、仅靠 TTL 兜底——与 backfillLocal 同口径记 Warn。
+		twoLevelLog.Warn("two-level cache local evict failed", "key", key, logx.ErrKey, err)
+	}
 }
 
 // Get 读穿获取：L1 命中直接返回；L2 命中后回填 L1 并返回。
