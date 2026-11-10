@@ -117,6 +117,10 @@ func (b *Bus) publish(ctx context.Context, keys []string) {
 func (s *busSubscription) release() {
 	s.once.Do(func() {
 		s.cancel()
-		_ = s.pubsub.Close()
+		if err := s.pubsub.Close(); err != nil {
+			// 订阅关闭失败必须留信号（#168，AGENTS.md「所有 error 禁止 `_`
+			// 忽略」）：连接未释放不可见，静默丢弃后泄漏无从排查。
+			twoLevelLog.Warn("two-level bus subscription close failed", logx.ErrKey, err)
+		}
 	})
 }
