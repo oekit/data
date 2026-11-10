@@ -44,7 +44,7 @@ type config[T any, ID comparable] struct {
 }
 
 // CachedOption 配置 CachedRepository（命名避开裸 Option——多包
-// co-import 冲突，仓内硬规则；本仓 data/cache 壳已存在 cache.Option）。
+// co-import 冲突，仓内硬规则；本仓 data/cache 壳的 CheckerOption 同款改名）。
 type CachedOption[T any, ID comparable] func(*config[T, ID])
 
 // WithID 注入实体 ID 访问器，写路径据此删实体键。

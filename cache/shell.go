@@ -16,9 +16,11 @@ type BatchGetter[T any] = src.BatchGetter[T]
 type Cache[T any] = src.Cache[T]
 type CacheAside[T any] = src.CacheAside[T]
 type Checker = src.Checker
+
+// CheckerOption Checker 可选项（pkg#355 禁裸 Option 改名，pkg v0.43.0）。
+type CheckerOption = src.CheckerOption
 type LocalCache[T any] = src.LocalCache[T]
 type LocalConfig[T any] = src.LocalConfig[T]
-type Option = src.Option
 type SingleFlightCache[T any] = src.SingleFlightCache[T]
 type SourceFunc[T any] = src.SourceFunc[T]
 
