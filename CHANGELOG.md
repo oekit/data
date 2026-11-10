@@ -1,5 +1,9 @@
 
 
+## [v0.21.0] — 2026-11-11
+
+- **BREAKING** refactor(cache): 壳类型改名跟随 pkg#355 禁裸 Option——`cache.Option` → `cache.CheckerOption`（= pkg `cache.CheckerOption`，随地板 pkg v0.43.0 一并落地）。显式命名该类型的调用方机械改名即可；改名动机是多包 co-import 冲突（仓规「函数选项模式 XxxOption」），全矩阵同批收口（httpx v0.10.0 / middleware 无波及）。
+
 ## [v0.20.12] — 2026-11-11
 
 - fix(cached): List 空页不再写入查询缓存——负结果不缓存与 GetOne 口径对齐，带外写入（不 bump 表级版本号）时 List/GetOne 结论一致（#167）
