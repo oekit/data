@@ -18,7 +18,7 @@ type CacheAside[T any] = src.CacheAside[T]
 type Checker = src.Checker
 type LocalCache[T any] = src.LocalCache[T]
 type LocalConfig[T any] = src.LocalConfig[T]
-type Option = src.Option
+type CheckerOption = src.CheckerOption
 type SingleFlightCache[T any] = src.SingleFlightCache[T]
 type SourceFunc[T any] = src.SourceFunc[T]
 
