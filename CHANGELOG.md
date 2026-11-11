@@ -1,5 +1,14 @@
 
 
+## [v0.21.1] — 2026-11-12
+
+- - fix(cached): 嵌套事务返回后恢复收集器绑定，inner/innerTx 纳入锁保护——外层后续写不再打到已提交的内层事务仓储，事务内并发读写无数据竞争（#180）
+- perf(cached): 缺省 ID 访问器/键段解码器构造期单源化——写路径与缓存 miss 热路径去逐次反射（访问器 8→3 allocs，int64 解码 0 allocs，#181，随单收敛 #183）
+- refactor(cached): repository.go 822 行按职责拆文件（options/keys/idaccessor/repository/invalidation/txcollector），写/读尾串收口 afterWrite/afterRead，行为等价（#179）
+- build: 依赖地板抬升 logx v0.10.0、pkg v0.45.0（#188）
+
+关联问题单：data#179、data#180、data#181。
+
 ## [v0.21.0] — 2026-11-11
 
 - **BREAKING** refactor(cache): 壳类型改名跟随 pkg#355 禁裸 Option——`cache.Option` → `cache.CheckerOption`（= pkg `cache.CheckerOption`，随地板 pkg v0.43.0 一并落地）。显式命名该类型的调用方机械改名即可；改名动机是多包 co-import 冲突（仓规「函数选项模式 XxxOption」），全矩阵同批收口（httpx v0.10.0 / middleware 无波及）。
