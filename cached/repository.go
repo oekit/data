@@ -654,8 +654,7 @@ func (r *CachedRepository[T, ID]) RunInTx(ctx context.Context, fn func(repo crud
 		if !ok {
 			return fmt.Errorf("cached: 事务内仓储未实现 TxRepository")
 		}
-		tw.inner = txRepo
-		tw.innerTx = innerTx
+		tw.rebind(txRepo, innerTx)
 		return fn(tw)
 	})
 	if err != nil {
@@ -685,7 +684,9 @@ func (r *CachedRepository[T, ID]) GetByIDForUpdate(ctx context.Context, id ID) (
 }
 
 // txCollector 事务内的仓储视图：写操作只记账（收集失效清单），
-// 读操作与行锁读直通事务仓储。
+// 读操作与行锁读直通事务仓储。inner/innerTx 与 ids/created 同锁保护
+// （#180）：嵌套 RunInTx 会重绑 inner/innerTx，事务内并发读写收集器
+// 视图时字段访问必须无数据竞争。
 type txCollector[T any, ID comparable] struct {
 	outer   *CachedRepository[T, ID]
 	inner   crud.Repository[T, ID]
@@ -694,6 +695,35 @@ type txCollector[T any, ID comparable] struct {
 	mu      sync.Mutex
 	ids     []ID
 	created []ID
+}
+
+// rebind 绑定事务仓储视图（锁内写）。外层 RunInTx 的闭包与嵌套 RunInTx
+// 的绑定/恢复共用。
+func (t *txCollector[T, ID]) rebind(repo crud.Repository[T, ID], innerTx crud.TxRepository[T, ID]) {
+	t.mu.Lock()
+	t.inner, t.innerTx = repo, innerTx
+	t.mu.Unlock()
+}
+
+// binding 读当前绑定（锁内读）。
+func (t *txCollector[T, ID]) binding() (crud.Repository[T, ID], crud.TxRepository[T, ID]) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.inner, t.innerTx
+}
+
+// bound 读当前事务仓储（锁内读，读写路径用）。
+func (t *txCollector[T, ID]) bound() crud.Repository[T, ID] {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.inner
+}
+
+// boundTx 读当前事务仓储的 Tx 形态（锁内读，行锁读/嵌套事务委托用）。
+func (t *txCollector[T, ID]) boundTx() crud.TxRepository[T, ID] {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.innerTx
 }
 
 func (t *txCollector[T, ID]) note(ids []ID) {
@@ -709,31 +739,31 @@ func (t *txCollector[T, ID]) noteCreated(ids []ID) {
 }
 
 func (t *txCollector[T, ID]) GetByID(ctx context.Context, id ID) (*T, error) {
-	return t.inner.GetByID(ctx, id)
+	return t.bound().GetByID(ctx, id)
 }
 
 func (t *txCollector[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T, error) {
-	return t.inner.GetOne(ctx, q)
+	return t.bound().GetOne(ctx, q)
 }
 
 func (t *txCollector[T, ID]) GetByCondition(ctx context.Context, query any, args ...any) (*T, error) {
-	return t.inner.GetByCondition(ctx, query, args...)
+	return t.bound().GetByCondition(ctx, query, args...)
 }
 
 func (t *txCollector[T, ID]) List(ctx context.Context, q *crud.Query) ([]T, int64, error) {
-	return t.inner.List(ctx, q)
+	return t.bound().List(ctx, q)
 }
 
 func (t *txCollector[T, ID]) Exists(ctx context.Context, q *crud.Query) (bool, error) {
-	return t.inner.Exists(ctx, q)
+	return t.bound().Exists(ctx, q)
 }
 
 func (t *txCollector[T, ID]) Count(ctx context.Context, q *crud.Query) (int64, error) {
-	return t.inner.Count(ctx, q)
+	return t.bound().Count(ctx, q)
 }
 
 func (t *txCollector[T, ID]) Create(ctx context.Context, entity *T) error {
-	if err := t.inner.Create(ctx, entity); err != nil {
+	if err := t.bound().Create(ctx, entity); err != nil {
 		return err
 	}
 	ids := t.outer.entityIDs(entity)
@@ -743,7 +773,7 @@ func (t *txCollector[T, ID]) Create(ctx context.Context, entity *T) error {
 }
 
 func (t *txCollector[T, ID]) BatchCreate(ctx context.Context, entities []*T, batchSize int) error {
-	if err := t.inner.BatchCreate(ctx, entities, batchSize); err != nil {
+	if err := t.bound().BatchCreate(ctx, entities, batchSize); err != nil {
 		return err
 	}
 	var ids []ID
@@ -756,7 +786,7 @@ func (t *txCollector[T, ID]) BatchCreate(ctx context.Context, entities []*T, bat
 }
 
 func (t *txCollector[T, ID]) Update(ctx context.Context, entity *T, opts ...crud.UpdateOption) (int64, error) {
-	rows, err := t.inner.Update(ctx, entity, opts...)
+	rows, err := t.bound().Update(ctx, entity, opts...)
 	if err != nil {
 		return rows, err
 	}
@@ -765,7 +795,7 @@ func (t *txCollector[T, ID]) Update(ctx context.Context, entity *T, opts ...crud
 }
 
 func (t *txCollector[T, ID]) UpdateFields(ctx context.Context, id ID, fields map[string]any) (int64, error) {
-	rows, err := t.inner.UpdateFields(ctx, id, fields)
+	rows, err := t.bound().UpdateFields(ctx, id, fields)
 	if err != nil {
 		return rows, err
 	}
@@ -774,7 +804,7 @@ func (t *txCollector[T, ID]) UpdateFields(ctx context.Context, id ID, fields map
 }
 
 func (t *txCollector[T, ID]) Delete(ctx context.Context, id ID) (int64, error) {
-	rows, err := t.inner.Delete(ctx, id)
+	rows, err := t.bound().Delete(ctx, id)
 	if err != nil {
 		return rows, err
 	}
@@ -783,7 +813,7 @@ func (t *txCollector[T, ID]) Delete(ctx context.Context, id ID) (int64, error) {
 }
 
 func (t *txCollector[T, ID]) BatchDelete(ctx context.Context, ids []ID) (int64, error) {
-	rows, err := t.inner.BatchDelete(ctx, ids)
+	rows, err := t.bound().BatchDelete(ctx, ids)
 	if err != nil {
 		return rows, err
 	}
@@ -796,19 +826,25 @@ func (t *txCollector[T, ID]) RunInTx(ctx context.Context, fn func(repo crud.Repo
 	// 写操作继续记账，失效仍由最外层 RunInTx 在提交后统一执行。
 	// 若直接透传 fn，底层仓储会给出裸事务仓储，写操作绕过收集——
 	// 提交后不失效，点读读到 TTL 窗口内的旧值。
-	return t.innerTx.RunInTx(ctx, func(repo crud.Repository[T, ID]) error {
+	//
+	// #180：委托前保存当前绑定、返回后恢复（锁内）。否则嵌套事务提交后
+	// t.inner/innerTx 永久指向已提交的内层事务仓储，外层 fn 中后续写
+	// 继续打到「已完成」的事务仓储上——gorm 靠 SAVEPOINT 共享同一
+	// *sql.Tx 才侥幸成立，接口契约不保证（提交后的仓储视图行为未定义）。
+	prevInner, prevInnerTx := t.binding()
+	defer t.rebind(prevInner, prevInnerTx)
+	return t.boundTx().RunInTx(ctx, func(repo crud.Repository[T, ID]) error {
 		innerTx, ok := repo.(crud.TxRepository[T, ID])
 		if !ok {
 			return fmt.Errorf("cached: 事务内仓储未实现 TxRepository")
 		}
-		t.inner = repo
-		t.innerTx = innerTx
+		t.rebind(repo, innerTx)
 		return fn(t)
 	})
 }
 
 func (t *txCollector[T, ID]) GetByIDForUpdate(ctx context.Context, id ID) (*T, error) {
-	return t.innerTx.GetByIDForUpdate(ctx, id)
+	return t.boundTx().GetByIDForUpdate(ctx, id)
 }
 
 // applyCollected 提交成功后的统一失效。
