@@ -41,6 +41,13 @@ type config[T any, ID comparable] struct {
 	bloom    BloomChecker
 	onError  OnErrorFunc
 	scopeKey ScopeKeyFunc
+
+	// idAcc 构造期解析好的 ID 访问器（WithID 优先，缺省探测次之，
+	// 都没有则为 nil）——写路径不再逐次反射（#181）。
+	idAcc func(*T) (ID, bool)
+	// decodeIDFn 构造期解析好的键段解码器（WithIDCodec 优先，缺省按
+	// ID 类型一次性选定）——缓存 miss 热路径不再做反射类型解析（#181）。
+	decodeIDFn func(string) (ID, error)
 }
 
 // CachedOption 配置 CachedRepository（命名避开裸 Option——多包
@@ -151,6 +158,10 @@ func NewRepository[T any, ID comparable](repo crud.Repository[T, ID], newCache C
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// 构造期单源化（#181）：ID 访问器与键段解码器各解析一次，写路径与
+	// 缓存 miss 热路径不再逐次反射。
+	cfg.idAcc = resolveIDAccessor[T, ID](cfg.idFn)
+	cfg.decodeIDFn = resolveIDDecoder[T, ID](cfg.decode)
 	r := &CachedRepository[T, ID]{cfg: cfg}
 	r.entity = newCache(r.source)
 	return r
@@ -208,39 +219,145 @@ func (r *CachedRepository[T, ID]) encodeID(id ID) string {
 	return fmt.Sprintf("%v", id)
 }
 
-// decodeID 键段字符串 → ID。缺省支持 string 直通与全部整型（十进制，
-// 按 reflect.Bits 限定宽度防溢出）；其余类型 fail-fast 报错并指路
-// WithIDCodec——绝不猜测性回源（错解码 = 查错行，比报错严重得多）。
+// decodeID 键段字符串 → ID。解码器在构造期解析一次（见 resolveIDDecoder），
+// 缺省支持 string 直通与全部整型（十进制，按类型宽度限定防溢出）；
+// 其余类型 fail-fast 报错并指路 WithIDCodec——绝不猜测性回源
+// （错解码 = 查错行，比报错严重得多）。
 func (r *CachedRepository[T, ID]) decodeID(s string) (ID, error) {
-	if r.cfg.decode != nil {
-		return r.cfg.decode(s)
+	return r.cfg.decodeIDFn(s)
+}
+
+// resolveIDDecoder 构造期解析键段解码器（#181）：显式 WithIDCodec 优先；
+// 缺省按 ID 类型一次性选定解码闭包——精确内建类型（string 与全部内建
+// 整型）走 strconv + 直接断言的免反射快路径，具名整型退回 reflect 装箱
+// （行为与历史一致，仅省去每次 TypeOf/Kind 解析），其余类型 fail-fast
+// 报错并指路 WithIDCodec。
+func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) func(string) (ID, error) {
+	if decode != nil {
+		return decode
 	}
 	var zero ID
 	t := reflect.TypeOf(zero)
 	if t == nil {
-		return zero, fmt.Errorf("cached: ID 为接口类型，缺省解码不可用，请用 WithIDCodec 注入编解码")
+		return func(string) (ID, error) {
+			return zero, fmt.Errorf("cached: ID 为接口类型，缺省解码不可用，请用 WithIDCodec 注入编解码")
+		}
 	}
+	// 精确内建类型快路径：strconv 解析 + any 断言（动态类型精确一致，
+	// 断言必成功），热路径零反射。
+	switch any(zero).(type) {
+	case string:
+		return func(s string) (ID, error) { return any(s).(ID), nil }
+	case int:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseInt(s, 10, strconv.IntSize)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(int(v)).(ID), nil
+		}
+	case int8:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseInt(s, 10, 8)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(int8(v)).(ID), nil
+		}
+	case int16:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseInt(s, 10, 16)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(int16(v)).(ID), nil
+		}
+	case int32:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseInt(s, 10, 32)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(int32(v)).(ID), nil
+		}
+	case int64:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseInt(s, 10, 64)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(v).(ID), nil
+		}
+	case uint:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseUint(s, 10, strconv.IntSize)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(uint(v)).(ID), nil
+		}
+	case uint8:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseUint(s, 10, 8)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(uint8(v)).(ID), nil
+		}
+	case uint16:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseUint(s, 10, 16)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(uint16(v)).(ID), nil
+		}
+	case uint32:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseUint(s, 10, 32)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(uint32(v)).(ID), nil
+		}
+	case uint64:
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseUint(s, 10, 64)
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			return any(v).(ID), nil
+		}
+	}
+	// 具名整型（type UserID int64 等）退回 reflect 路径：类型与宽度在
+	// 构造期已定，仅保留每次装箱（行为与历史完全一致）。
 	switch t.Kind() {
 	case reflect.String:
-		return any(s).(ID), nil
+		return func(s string) (ID, error) { return any(s).(ID), nil }
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v, err := strconv.ParseInt(s, 10, t.Bits())
-		if err != nil {
-			return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseInt(s, 10, t.Bits())
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			out := reflect.New(t).Elem()
+			out.SetInt(v)
+			return out.Interface().(ID), nil
 		}
-		out := reflect.New(t).Elem()
-		out.SetInt(v)
-		return out.Interface().(ID), nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v, err := strconv.ParseUint(s, 10, t.Bits())
-		if err != nil {
-			return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+		return func(s string) (ID, error) {
+			v, err := strconv.ParseUint(s, 10, t.Bits())
+			if err != nil {
+				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+			}
+			out := reflect.New(t).Elem()
+			out.SetUint(v)
+			return out.Interface().(ID), nil
 		}
-		out := reflect.New(t).Elem()
-		out.SetUint(v)
-		return out.Interface().(ID), nil
 	default:
-		return zero, fmt.Errorf("cached: ID 类型 %s 不支持缺省键解码，请用 WithIDCodec 注入编解码", t)
+		return func(string) (ID, error) {
+			return zero, fmt.Errorf("cached: ID 类型 %s 不支持缺省键解码，请用 WithIDCodec 注入编解码", t)
+		}
 	}
 }
 
@@ -541,8 +658,8 @@ func (r *CachedRepository[T, ID]) BatchDelete(ctx context.Context, ids []ID) (in
 	return rows, nil
 }
 
-// entityIDs 取实体 ID（WithID 或缺省探测）；取不到时返回空——
-// 写路径仍会 bump 查询版本，点读一致性退化为 TTL 兜底。
+// entityIDs 取实体 ID（WithID 或构造期解析好的缺省探测访问器）；取不到时
+// 返回空——写路径仍会 bump 查询版本，点读一致性退化为 TTL 兜底。
 func (r *CachedRepository[T, ID]) entityIDs(entity *T) []ID {
 	if id, ok := r.entityID(entity); ok {
 		return []ID{id}
@@ -551,29 +668,42 @@ func (r *CachedRepository[T, ID]) entityIDs(entity *T) []ID {
 }
 
 func (r *CachedRepository[T, ID]) entityID(entity *T) (ID, bool) {
-	if r.cfg.idFn != nil {
-		return r.cfg.idFn(entity), true
-	}
-	if fn, ok := defaultIDAccessor[T, ID](); ok {
-		return fn(entity), true
+	if r.cfg.idAcc != nil {
+		return r.cfg.idAcc(entity)
 	}
 	var zero ID
 	return zero, false
 }
 
+// resolveIDAccessor 构造期解析 ID 访问器（#181）：显式 WithID 优先；
+// 缺省探测（defaultIDAccessor 的反射查找 + 闭包构建）在构造期做一次，
+// 写路径与事务记账路径不再逐次反射分配。两者都不可用时返回 nil
+// （entityID 退化为 (zero, false)，写路径只 bump 查询版本）。
+func resolveIDAccessor[T any, ID comparable](idFn func(*T) ID) func(*T) (ID, bool) {
+	if idFn != nil {
+		return func(e *T) (ID, bool) { return idFn(e), true }
+	}
+	if fn, ok := defaultIDAccessor[T, ID](); ok {
+		return func(e *T) (ID, bool) { return fn(e), true }
+	}
+	return nil
+}
+
 // defaultIDAccessor 缺省 ID 探测：GetID() 方法优先（在指针类型上查——
 // 指针接收者方法只存在于指针方法集，gormx.BaseModel 的 GetID 即是；
 // 返回类型须与 ID 精确一致），其次名为 "ID" 的可导出字段（类型须与
-// ID 一致）。
+// ID 一致）。方法/字段下标在解析期预计算（#181），返回的闭包热路径
+// 不再做 MethodByName/FieldByName 名字查找。
 func defaultIDAccessor[T any, ID comparable]() (func(*T) ID, bool) {
 	var zero ID
 	idType := reflect.TypeOf(zero)
 	ptrT := reflect.TypeOf((*T)(nil))
 	if m, ok := ptrT.MethodByName("GetID"); ok &&
 		m.Type.NumIn() == 1 && m.Type.NumOut() == 1 && m.Type.Out(0) == idType {
+		mi := methodIndexOf(ptrT, "GetID")
 		return func(e *T) ID {
 			// e 是 *T，指针值的方法集含值/指针两种接收者方法
-			return reflect.ValueOf(e).MethodByName("GetID").Call(nil)[0].Interface().(ID)
+			return reflect.ValueOf(e).Method(mi).Call(nil)[0].Interface().(ID)
 		}, true
 	}
 	structT := ptrT.Elem()
@@ -581,11 +711,22 @@ func defaultIDAccessor[T any, ID comparable]() (func(*T) ID, bool) {
 		return nil, false
 	}
 	if f, ok := structT.FieldByName("ID"); ok && f.IsExported() && f.Type == idType {
+		fi := f.Index // 可能是嵌入提升字段的路径（FieldByIndex 语义与 FieldByName 一致）
 		return func(e *T) ID {
-			return reflect.ValueOf(e).Elem().FieldByName("ID").Interface().(ID)
+			return reflect.ValueOf(e).Elem().FieldByIndex(fi).Interface().(ID)
 		}, true
 	}
 	return nil, false
+}
+
+// methodIndexOf 方法名 → 方法集下标（仅探测期调用，热路径不出现）。
+func methodIndexOf(t reflect.Type, name string) int {
+	for i := 0; i < t.NumMethod(); i++ {
+		if t.Method(i).Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // invalidate 写库成功后的失效：删实体键（best-effort）+ bump 查询版本。
