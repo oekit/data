@@ -16,9 +16,16 @@ type BackendConfig = src.BackendConfig
 type DeliveryMode = src.DeliveryMode
 type Handler = src.Handler
 type LocalBackend = src.LocalBackend
+
+type RetryHooks = src.RetryHooks
+type RetryOutcome = src.RetryOutcome
+
 type Task = src.Task
 type TimerTask = src.TimerTask
 type TimerTaskOption = src.TimerTaskOption
+
+// ErrBackendAlreadyStarted 后端重复启动（Start 已在运行）。
+var ErrBackendAlreadyStarted = src.ErrBackendAlreadyStarted
 
 // ErrEmptyTaskID 提交的任务没有 ID（任务 ID 必须唯一）。
 var ErrEmptyTaskID = src.ErrEmptyTaskID
@@ -27,7 +34,9 @@ var ErrEmptyTaskID = src.ErrEmptyTaskID
 var ErrBackendStopped = src.ErrBackendStopped
 
 var NewLocalBackend = src.NewLocalBackend
+var NormalizeRetry = src.NormalizeRetry
 var ResolveOptions = src.ResolveOptions
+var RunWithRetry = src.RunWithRetry
 var WithAtLeastOnce = src.WithAtLeastOnce
 var WithBuckets = src.WithBuckets
 var WithDeliveryMode = src.WithDeliveryMode
