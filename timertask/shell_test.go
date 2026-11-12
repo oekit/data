@@ -32,7 +32,7 @@ func TestDeliveryModeConstIdentity(t *testing.T) {
 		t.Fatal("DeliveryAtLeastOnce 与源包不是同一取值")
 	}
 	// 门面侧现在写得出可靠投递选项（此前只能构造出零值 AtMostOnce）。
-	var _ timertask.TimerTaskOption = timertask.WithDeliveryMode(timertask.DeliveryAtLeastOnce)
+	_ = timertask.WithDeliveryMode(timertask.DeliveryAtLeastOnce)
 }
 
 // TestRetryOutcomeConstIdentity（#196）重试终态常量：与 RetryOutcome 类型
