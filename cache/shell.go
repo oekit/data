@@ -7,11 +7,14 @@ package cache
 
 import src "github.com/oekit/pkg/cache"
 
-// BatchGetter 可选能力接口：批量读取。契约补充（data#114）：返回 map 中
-// 出现的键必须是找到的**非 nil 真值**——null marker（不存在）不得作为
-// 命中返回，缺席即不在 map 中（消费方对缺席键回退 GetOrLoad 享受 marker
-// 短路）。LocalCache/RedisCache 等仓内实现均遵守；防御性消费方（如
-// cached.GetByIDs）对 (key, nil) 命中按缺席处理。
+// BatchGetter 可选能力接口：批量读取。契约口径（#198 修正，与源包
+// BatchHitGetter 的消歧说明一致）：**键在场 = 命中，值可能为 nil**——
+// 显式存入的 nil 真值同样进 map（v, ok := m[k] 的 ok 为 true，LocalCache
+// 即此形态）；null marker（不存在）与缺席键一律不在 map 中（RedisCache
+// 形态）。消费方对缺席键回退 GetOrLoad 享受 marker 短路；需要区分
+// 「nil 真值命中」与「缺席」时请用 BatchHitGetter（MGetEx，pkg#238）。
+// 防御性消费方（如 cached.GetByIDs）对 (key, nil) 命中按缺席处理——
+// 那是契约内的键存在性形态，不是后端违约。
 type BatchGetter[T any] = src.BatchGetter[T]
 type Cache[T any] = src.Cache[T]
 type CacheAside[T any] = src.CacheAside[T]

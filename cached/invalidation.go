@@ -20,13 +20,19 @@ import (
 // （TTL 兜底）；写操作本身已成功，不因此报错（报错会让调用方以为写失败
 // 而重试）。addToBloom 仅 Create 族置位——bloom 只增不减，Update/Delete
 // 重复 Add 无害但对语义无益（见 bloom.go）。
+//
+// bloomAdd 与作用域解耦（#204）：bloom 元素刻意不按作用域切分
+// （bloomItem），不消费 scope——作用域失败只跳过 invalidate，bloomAdd
+// 照常执行。跳过 invalidate 有 TTL 兜底；跳过 bloomAdd 没有任何兜底
+// （bloom 只增不减，Create 是新 ID 的唯一补录点，错过即被 bloomGate
+// 判「绝对不存在」且永不自愈）。
 func (r *CachedRepository[T, ID]) afterWrite(ctx context.Context, ids []ID, addToBloom bool) {
 	scope, err := r.scope(ctx)
 	if err != nil {
 		r.report(ctx, "scope", nil, err)
-		return
+	} else {
+		r.invalidate(ctx, scope, ids)
 	}
-	r.invalidate(ctx, scope, ids)
 	if addToBloom {
 		r.bloomAdd(ctx, ids)
 	}
