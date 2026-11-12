@@ -33,6 +33,14 @@ type SourceFuncWithTTL[T any] = src.SourceFuncWithTTL[T]
 // EvictPolicy 淘汰策略（pkg v0.16.0，pkg#25）——LocalConfig.EvictPolicy 取值。
 type EvictPolicy = src.EvictPolicy
 
+// EvictFIFO 写序淘汰（缺省）：FIFO + 重写提升，读命中不提升（历史行为）。
+// 壳此前只转发类型未转发取值常量（门面跟版税漏跟，与 data#196 同族）——
+// 消费方在门面侧写不出合法取值。
+const EvictFIFO = src.EvictFIFO
+
+// EvictLRU 读序淘汰：读命中同样提升顺序（最近最少使用的条目先淘汰）。
+const EvictLRU = src.EvictLRU
+
 // Sweeper 可选能力接口：手动清扫过期条目（pkg v0.16.0，pkg#25）。
 type Sweeper = src.Sweeper
 

@@ -99,3 +99,15 @@ func TestGetOrLoadSmoke(t *testing.T) {
 		t.Fatalf("GetOrLoad: got (%v, %v)", got, err)
 	}
 }
+
+// TestEvictPolicyConstIdentity 淘汰策略取值常量：壳此前漏跟（与 data#196
+// 同族的门面跟版税违约，只转发类型未转发取值）——补齐后消费方在门面侧
+// 才写得出合法取值。
+func TestEvictPolicyConstIdentity(t *testing.T) {
+	if cache.EvictFIFO != pkgcache.EvictFIFO || cache.EvictLRU != pkgcache.EvictLRU {
+		t.Fatal("EvictFIFO/EvictLRU 必须与源包同一取值")
+	}
+	if cache.EvictFIFO != 0 || cache.EvictLRU != 1 {
+		t.Fatal("取值须与源包 iota 序一致（FIFO 缺省 0 / LRU 1）")
+	}
+}

@@ -20,6 +20,23 @@ type LocalBackend = src.LocalBackend
 type RetryHooks = src.RetryHooks
 type RetryOutcome = src.RetryOutcome
 
+// DeliveryAtMostOnce 至多一次投递（默认）：claim 即从队列删除，执行中断
+// 任务即丢失。
+const DeliveryAtMostOnce = src.DeliveryAtMostOnce
+
+// DeliveryAtLeastOnce 至少一次投递：claim 移入租约集，中断可被重新认领
+// 重投（消费方必须幂等）。
+const DeliveryAtLeastOnce = src.DeliveryAtLeastOnce
+
+// RetrySuccess 重试终态：任务执行成功。
+const RetrySuccess = src.RetrySuccess
+
+// RetryInterrupted 重试终态：被停机打断（任务未到终态，中断处置已由钩子完成）。
+const RetryInterrupted = src.RetryInterrupted
+
+// RetryExhausted 重试终态：次数耗尽仍失败（终态处置交给调用方）。
+const RetryExhausted = src.RetryExhausted
+
 type Task = src.Task
 type TimerTask = src.TimerTask
 type TimerTaskOption = src.TimerTaskOption
