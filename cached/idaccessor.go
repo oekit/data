@@ -70,7 +70,7 @@ func defaultIDAccessor[T any, ID comparable]() (func(*T) ID, bool) {
 
 // methodIndexOf 方法名 → 方法集下标（仅探测期调用，热路径不出现）。
 func methodIndexOf(t reflect.Type, name string) int {
-	for i := 0; i < t.NumMethod(); i++ {
+	for i := range t.NumMethod() {
 		if t.Method(i).Name == name {
 			return i
 		}
