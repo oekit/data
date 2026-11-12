@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/oekit/concurrency v0.34.1
-	github.com/oekit/gormx v0.11.14
+	github.com/oekit/gormx v0.11.15
 	github.com/oekit/logx v0.10.0
 	github.com/oekit/pkg v0.47.0
 	github.com/oekit/redisx v0.14.2-0.20261112151037-3ae9cda496ce
