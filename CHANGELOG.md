@@ -1,5 +1,9 @@
 
 
+## [v0.21.2] — 2026-11-13
+
+- 10 单修复批：twolevel err 字面量清零（#200）、pkg/distlock 契约身份测试（#195）、busSub 僵尸订阅识别（#185）、BatchGetter 键存在性语义（#198）、argsDistinguishable fail-closed（#197）、BloomMAdder 可选批量（#187）、单遍序列化（#186）、三重构造期 panic（#184）、godoc bloom 例外（#199）、Delivery 符号转发（#196）；地板对齐 pkg v0.47.0。
+
 ## [v0.21.1] — 2026-11-12
 
 - - fix(cached): 嵌套事务返回后恢复收集器绑定，inner/innerTx 纳入锁保护——外层后续写不再打到已提交的内层事务仓储，事务内并发读写无数据竞争（#180）
