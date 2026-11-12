@@ -74,6 +74,10 @@ func NewTwoLevelCache[T any](
 // 调用方负责在应用生命周期内持有 ctx；Close 或 ctx 取消都只停止本实例的
 // 订阅——共享同一 Bus 的其他实例不受影响（#140）。
 //
+// 父 ctx 取消后允许重建（#185）：watcher release 只关订阅、不复位 busSub
+// 字段，幂等检查若把僵尸订阅当活订阅，后续 Start 将静默 no-op，L1 失效
+// 广播永久死亡且无信号——Start 检测到僵尸订阅即复位并重建。
+//
 // 注意：订阅错误本身不报错——go-redis 的订阅错误是异步的，Redis 不可达时
 // 循环会静默重连（Channel 自带重连）；可观测性靠 Bus 内部日志。
 func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
@@ -83,7 +87,11 @@ func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.busSub != nil {
-		return nil // 运行中重复 Start 幂等：已有订阅，不追加
+		if !c.busSub.dead() {
+			return nil // 运行中重复 Start 幂等：已有活订阅，不追加
+		}
+		// 父 ctx 取消 ⇒ watcher 已 release（release 幂等），复位僵尸后重建。
+		c.busSub = nil
 	}
 	s, err := c.bus.acquire(ctx, c.evictLocal)
 	if err != nil {
@@ -292,7 +300,7 @@ func (c *TwoLevelCache[T]) remoteMGet(ctx context.Context, keys []string) (map[s
 // Refresh 刷新：清 L1 后走 L2 的删除重载（null marker 一并清除），新值回填 L1。
 func (c *TwoLevelCache[T]) Refresh(ctx context.Context, key string) (*T, error) {
 	if err := c.local.Del(ctx, key); err != nil {
-		twoLevelLog.Warn("two-level cache refresh local del failed", "key", key, "err", err)
+		twoLevelLog.Warn("two-level cache refresh local del failed", "key", key, logx.ErrKey, err)
 	}
 
 	v, err := c.remote.Refresh(ctx, key)
@@ -308,6 +316,6 @@ func (c *TwoLevelCache[T]) Refresh(ctx context.Context, key string) (*T, error) 
 // 预期形态，由构造 LocalCache 时配置。
 func (c *TwoLevelCache[T]) backfillLocal(ctx context.Context, key string, v *T) {
 	if err := c.local.Set(ctx, key, v); err != nil {
-		twoLevelLog.Warn("two-level cache local backfill failed", "key", key, "err", err)
+		twoLevelLog.Warn("two-level cache local backfill failed", "key", key, logx.ErrKey, err)
 	}
 }

@@ -325,3 +325,59 @@ func TestBusStopsOnContextCancel(t *testing.T) {
 	}
 	_ = cacheA.Close(context.Background())
 }
+
+// TestStartRebuildsAfterParentCtxCancel（#185）：父 ctx 取消杀死订阅后，
+// 后续 Start（换活 ctx）必须能重建——修复前 Start 幂等检查读到僵尸
+// busSub 永远静默 no-op，L1 失效广播永久死亡且无信号。观测口径与
+// TestBusStopsOnContextCancel 相同：用第三方实例的 Del 广播探测 A 的
+// 订阅循环是否在工作。
+func TestStartRebuildsAfterParentCtxCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mr := miniredis.RunT(t)
+
+	cacheA, localA, _ := newBussedCacheCtx(t, mr, "reb", ctx)
+	cacheB, _, _ := newBussedCache(t, mr, "rb")
+
+	// 正控制：取消前广播链路通——B.Del 能驱逐 A 的 L1。
+	v := 9
+	if err := localA.Set(ctx, "k1", &v); err != nil {
+		t.Fatalf("A L1 Set: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_ = cacheB.Del(context.Background(), "k1")
+		if ok, _ := localA.Exists(context.Background(), "k1"); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("正控制失败：B.Del 未能驱逐 A 的 L1（广播链路不通）")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// 杀死 A 的订阅（父 ctx 取消，watcher release 落地）。
+	cancel()
+	time.Sleep(300 * time.Millisecond)
+
+	// 重建：换活 ctx 再 Start——修复前此处静默 no-op（僵尸订阅占位）。
+	if err := cacheA.Start(context.Background()); err != nil {
+		t.Fatalf("僵尸订阅后 Start 应重建订阅: %v", err)
+	}
+
+	// 重建后广播链路必须恢复：B.Del 再次驱逐 A 的 L1。
+	if err := localA.Set(context.Background(), "k2", &v); err != nil {
+		t.Fatalf("A L1 Set: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		_ = cacheB.Del(context.Background(), "k2")
+		if ok, _ := localA.Exists(context.Background(), "k2"); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Start 重建后广播链路未恢复（僵尸 busSub 仍占位，幂等检查 no-op）")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

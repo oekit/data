@@ -48,6 +48,20 @@ type busSubscription struct {
 	pubsub *redis.PubSub
 	cancel context.CancelFunc
 	once   sync.Once
+	// ctx 订阅自己的派生 ctx：父 ctx 取消（watcher release）后据此判
+	// 「僵尸订阅」（#185）——busSub 字段不复位会让 Start 幂等检查永远
+	// 读到死订阅，L1 失效广播永久死亡且无信号。
+	ctx context.Context
+}
+
+// dead 订阅是否已被自身 ctx 结束（父 ctx 取消或 release 已执行）。
+func (s *busSubscription) dead() bool {
+	select {
+	case <-s.ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // NewBus 创建失效广播。client 用于 Publish 与 Subscribe（redisx.Client
@@ -68,7 +82,7 @@ func (b *Bus) acquire(parent context.Context, onEvict func(key string)) (*busSub
 	ctx, cancel := context.WithCancel(parent)
 	pubsub := b.client.Subscribe(ctx, b.channel)
 
-	s := &busSubscription{pubsub: pubsub, cancel: cancel}
+	s := &busSubscription{pubsub: pubsub, cancel: cancel, ctx: ctx}
 	// ctx 取消（调用方 ctx 或 release 的 cancel）⇒ 订阅收尾；release 幂等。
 	// 收尾走 async.GoSafe（#169，与下一段订阅循环同口径，AGENTS.md 并发
 	// 硬规则：禁止裸 goroutine 起手）：release 里 pubsub.Close() 若 panic
@@ -83,7 +97,7 @@ func (b *Bus) acquire(parent context.Context, onEvict func(key string)) (*busSub
 			var m busMessage
 			if err := json.Unmarshal([]byte(msg.Payload), &m); err != nil {
 				twoLevelLog.Warn("two-level bus malformed message",
-					"channel", b.channel, "err", err)
+					"channel", b.channel, logx.ErrKey, err)
 				continue
 			}
 			if m.Version > busVersion {
@@ -106,12 +120,12 @@ func (b *Bus) publish(ctx context.Context, keys []string) {
 	}
 	blob, err := json.Marshal(busMessage{Version: busVersion, Keys: keys})
 	if err != nil {
-		twoLevelLog.Warn("two-level bus marshal failed", "keys", keys, "err", err)
+		twoLevelLog.Warn("two-level bus marshal failed", "keys", keys, logx.ErrKey, err)
 		return
 	}
 	if err := b.client.Publish(ctx, b.channel, blob).Err(); err != nil {
 		twoLevelLog.Warn("two-level bus publish failed",
-			"channel", b.channel, "keys", keys, "err", err)
+			"channel", b.channel, "keys", keys, logx.ErrKey, err)
 	}
 }
 
