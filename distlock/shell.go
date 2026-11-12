@@ -4,6 +4,13 @@
 // re-export 自 github.com/oekit/redisx/distlock：类型为泛型 type alias（与源包**完全同一类型**，
 // 双向赋值互通）；非泛型函数/变量经 var 引用同一函数值。源包新增导出符号时
 // 本壳需同步（门面跟版税，data 门面化决策已接受）。
+//
+// 哨兵与 Locker 跟随 redisx 的契约单源迁移（redisx distlock#159 批次，
+// e082600 起）：redisx/distlock 的 Locker 即 pkg/distlock.Locker 的类型别名、
+// 三枚哨兵即 pkg/distlock 的同值别名（同进程只此一套值）——本壳经转发
+// 自动继承，errors.Is 跨包判定与 etcdx 后端一致（#195）。依赖地板必须钉在
+// 迁移提交之后（v0.14.1 是迁移前最后一个 tag，勿回退）；契约由
+// shell_test.go 的 TestPkgDistlockContractIdentity 机器钉住。
 package distlock
 
 import src "github.com/oekit/redisx/distlock"
