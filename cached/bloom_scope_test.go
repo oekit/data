@@ -59,7 +59,7 @@ func (f *countingBloom) MAdd(ctx context.Context, items ...string) ([]bool, erro
 	f.fakeBloom.mu.Lock()
 	defer f.fakeBloom.mu.Unlock()
 	for _, item := range items {
-		f.fakeBloom.items[item] = true
+		f.items[item] = true
 	}
 	return make([]bool, len(items)), nil
 }
@@ -196,7 +196,7 @@ func TestBloomAddBatchesWhenCapable(t *testing.T) {
 		t.Fatalf("MAdd 应携带全部 3 个元素: %v", bf.maddItems[0])
 	}
 	for _, id := range []string{"1", "2", "3"} {
-		if !bf.fakeBloom.items[id] {
+		if !bf.items[id] {
 			t.Fatalf("元素 %s 未进 bloom", id)
 		}
 	}
@@ -219,7 +219,7 @@ func TestBloomAddFallsBackPerID(t *testing.T) {
 	if bf.addCalls != 2 {
 		t.Fatalf("无批量能力应退化为逐个 Add：Add=%d", bf.addCalls)
 	}
-	if !bf.fakeBloom.items["1"] || !bf.fakeBloom.items["2"] {
-		t.Fatalf("退化路径元素照常补录: %v", bf.fakeBloom.items)
+	if !bf.items["1"] || !bf.items["2"] {
+		t.Fatalf("退化路径元素照常补录: %v", bf.items)
 	}
 }
