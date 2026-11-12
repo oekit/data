@@ -27,7 +27,9 @@ func (r *CachedRepository[T, ID]) entityID(entity *T) (ID, bool) {
 // resolveIDAccessor 构造期解析 ID 访问器（#181）：显式 WithID 优先；
 // 缺省探测（defaultIDAccessor 的反射查找 + 闭包构建）在构造期做一次，
 // 写路径与事务记账路径不再逐次反射分配。两者都不可用时返回 nil
-// （entityID 退化为 (zero, false)，写路径只 bump 查询版本）。
+// （entityID 退化为 (zero, false)，写路径只 bump 查询版本；开启
+// WithBloomFilter 时该组合在构造期被 fail-fast 拒绝——#210，见
+// NewRepository）。
 func resolveIDAccessor[T any, ID comparable](idFn func(*T) ID) func(*T) (ID, bool) {
 	if idFn != nil {
 		return func(e *T) (ID, bool) { return idFn(e), true }

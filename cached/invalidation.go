@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"strconv"
 	"time"
 
@@ -34,6 +35,14 @@ func (r *CachedRepository[T, ID]) afterWrite(ctx context.Context, ids []ID, addT
 		r.invalidate(ctx, scope, ids)
 	}
 	if addToBloom {
+		if r.cfg.bloom != nil && len(ids) == 0 {
+			// 防御性上报（#210）：构造期 fail-fast 已拦截「bloom 开启但无 ID
+			// 访问器」的组合，该分支正常不可达；若未来 entityID 语义变化
+			// （如出现取值判 false 的新形态）重新出现「写路径拿不到 ID」，
+			// 这里保证至少有 onError 信号，不再零信号静默丢补录（#204 同
+			// 族口径：跳过 bloomAdd 没有任何兜底，必须可观测）。
+			r.report(ctx, "bloom", nil, errors.New("cached: 写路径取不到实体 ID，新实体无法补录布隆（点读将被前置门判为不存在）"))
+		}
 		r.bloomAdd(ctx, ids)
 	}
 }
