@@ -88,47 +88,114 @@ func (qc *QueryCache[T]) WithFingerprint(fn FingerprintFunc) *QueryCache[T] {
 //   - 序列化失败（chan/func 等）；
 //   - 序列化成功但**无区分度**——driver.Valuer 风格的非导出字段结构体
 //     恒编为 {}、nil 恒编为 null，不同取值会同指纹串数据（这是"查到
-//     错误数据"而非"查到旧数据"，绝不接受）。此类工作负载请用
-//     WithFingerprint 提供类型感知的指纹。
+//     错误数据"而非"查到旧数据"，绝不接受）。判据是**递归**的（#197）：
+//     无区分度元素被切片/map 等容器包住时容器编码不再恰为 {} / null，
+//     但容器内的 {} / null 子树同样意味着不同取值会同编码——一并拒绝。
+//     此类工作负载请用 WithFingerprint 提供类型感知的指纹。
+//
+// 整段 spec 只做一次 JSON 序列化（#186）：参数无区分度校验直接在
+// 同一份 blob 内定位参数节点，不再逐参数重编一遍。
 func DefaultFingerprint[T any](spec crud.QuerySpec) (string, error) {
-	for _, c := range spec.Conds {
-		for _, arg := range c.Args {
-			if err := fingerprintable(arg); err != nil {
-				return "", err
-			}
-		}
-	}
-	for _, c := range spec.OrConds {
-		for _, arg := range c.Args {
-			if err := fingerprintable(arg); err != nil {
-				return "", err
-			}
-		}
-	}
-	for _, p := range spec.Preloads {
-		for _, arg := range p.Args {
-			if err := fingerprintable(arg); err != nil {
-				return "", err
-			}
-		}
-	}
 	blob, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("cached: 查询指纹序列化失败: %w", err)
+	}
+	if err := argsDistinguishable(spec, blob); err != nil {
+		return "", err
 	}
 	sum := sha256.Sum256(append([]byte(fpVersion+":"), blob...))
 	return hex.EncodeToString(sum[:])[:16], nil
 }
 
-// fingerprintable 校验单个查询参数能否进指纹：不可序列化或序列化结果
-// 无区分度（{} / null）都不放行。
-func fingerprintable(arg any) error {
-	blob, err := json.Marshal(arg)
-	if err != nil {
-		return fmt.Errorf("cached: 查询参数 %T 序列化失败: %w", arg, err)
+// argsDistinguishable 校验 spec 全部查询参数的 JSON 编码携带区分度
+// （#197）：参数节点从已序列化的 spec blob 内定位，不再二次序列化
+// （#186）。
+//
+// 定位依赖 QuerySpec/Condition/Preload 的缺省 JSON 布局（无标签字段名
+// Conds/OrConds/Preloads 与 Args）。布局漂移防护：walk 到的参数节点数
+// 必须与 spec 实际持有的参数数一致，不一致 fail-closed 拒绝指纹——
+// 宁可降级直通，不可漏检。
+func argsDistinguishable(spec crud.QuerySpec, blob []byte) error {
+	var root struct {
+		Conds    []argsBlob `json:"Conds"`
+		OrConds  []argsBlob `json:"OrConds"`
+		Preloads []argsBlob `json:"Preloads"`
 	}
-	if s := string(blob); s == "{}" || s == "null" {
-		return fmt.Errorf("cached: 查询参数 %T 序列化为 %s，无法区分取值，拒绝指纹", arg, s)
+	if err := json.Unmarshal(blob, &root); err != nil {
+		return fmt.Errorf("cached: 查询指纹自检失败（spec blob 不可解析）: %w", err)
+	}
+	if len(root.Conds) != len(spec.Conds) || len(root.OrConds) != len(spec.OrConds) ||
+		len(root.Preloads) != len(spec.Preloads) {
+		return errors.New("cached: 查询指纹自检与 spec 布局不一致（条件条数不匹配），拒绝指纹")
+	}
+	for i := range spec.Conds {
+		if err := checkArgBlobs(root.Conds[i], spec.Conds[i].Args, fmt.Sprintf("Conds[%d]", i)); err != nil {
+			return err
+		}
+	}
+	for i := range spec.OrConds {
+		if err := checkArgBlobs(root.OrConds[i], spec.OrConds[i].Args, fmt.Sprintf("OrConds[%d]", i)); err != nil {
+			return err
+		}
+	}
+	for i := range spec.Preloads {
+		if err := checkArgBlobs(root.Preloads[i], spec.Preloads[i].Args, fmt.Sprintf("Preloads[%d]", i)); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// argsBlob 是 Condition / Preload 在 spec blob 内的参数载体（两者都以
+// "Args" 字段承载查询参数，共用一个解析形态）。
+type argsBlob struct {
+	Args []json.RawMessage `json:"Args"`
+}
+
+// checkArgBlobs 校验单个条件的参数编码：节点数必须与 Go 侧一致
+// （布局漂移防护），每个参数再递归判定区分度。
+func checkArgBlobs(c argsBlob, args []any, path string) error {
+	if len(c.Args) != len(args) {
+		return fmt.Errorf("cached: 查询指纹自检与 spec 布局不一致（%s.Args 条数不匹配），拒绝指纹", path)
+	}
+	for j, raw := range c.Args {
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return fmt.Errorf("cached: 查询参数 %s.Args[%d] 编码不可解析，拒绝指纹: %w", path, j, err)
+		}
+		if !distinguishable(v) {
+			return fmt.Errorf("cached: 查询参数 %s.Args[%d] 编码含无区分度子树（{} / null），不同取值会同指纹，拒绝指纹", path, j)
+		}
+	}
+	return nil
+}
+
+// distinguishable 递归判定 JSON 值是否携带区分度（#197）：{} 与 null
+// 在任何嵌套位置都意味着该子树的取值信息在编码中丢失（不同取值同编码
+// ⇒ 同指纹串数据）。空数组/空对象外的数组与对象逐元素下钻，任一子树
+// 无区分度即整段无区分度。
+func distinguishable(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return false // null：取值信息丢失
+	case map[string]any:
+		if len(t) == 0 {
+			return false // {}：取值信息丢失（含非导出字段结构体）
+		}
+		for _, e := range t {
+			if !distinguishable(e) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		for _, e := range t {
+			if !distinguishable(e) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
+	}
 }

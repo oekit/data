@@ -36,7 +36,19 @@ func assertRepositoryContract[T any, ID comparable]() {
 // NewRepository 创建缓存编排仓储装饰器。
 // newCache 必填：装饰器不代持后端构造，TTL/容量/序列化等后端参数
 // 全部留在调用方手里，装饰器只注入回源函数。
+//
+// 构造期 fail-fast（#184）：repo / newCache 为 nil、工厂产物为 nil 都在
+// 装配点 panic（配置错误启动即暴露的对齐纪律，同 timertask.WithRetry），
+// 不留「nil 在使用期才 panic、距装配点远且无现场」的坑。构造器只返回
+// 指针不留 error（保持既有签名不破坏消费方），因此以 panic 承载装配期
+// 契约。与 NewQueryCache「任意为 nil 构造期即拒绝」的口径一致。
 func NewRepository[T any, ID comparable](repo crud.Repository[T, ID], newCache CacheFactory[T], opts ...CachedOption[T, ID]) *CachedRepository[T, ID] {
+	if repo == nil {
+		panic("cached: NewRepository 的底层仓储 repo 不得为 nil——装配期即暴露，否则首个使用点才 nil panic 且无装配现场")
+	}
+	if newCache == nil {
+		panic("cached: NewRepository 的 newCache 工厂不得为 nil——装饰器不代持后端构造（见 CacheFactory），缺工厂无法回填缓存")
+	}
 	cfg := config[T, ID]{
 		repo:   repo,
 		prefix: "cached",
@@ -51,6 +63,9 @@ func NewRepository[T any, ID comparable](repo crud.Repository[T, ID], newCache C
 	cfg.decodeIDFn = resolveIDDecoder[T, ID](cfg.decode)
 	r := &CachedRepository[T, ID]{cfg: cfg}
 	r.entity = newCache(r.source)
+	if r.entity == nil {
+		panic("cached: NewRepository 的 newCache 工厂返回了 nil 缓存——首个 GetOrLoad 将 nil panic，装配期即暴露")
+	}
 	return r
 }
 

@@ -38,6 +38,11 @@ func (r *CachedRepository[T, ID]) RunInTx(ctx context.Context, fn func(repo crud
 	scope, scopeErr := r.scope(ctx)
 	if scopeErr != nil {
 		r.report(ctx, "scope", nil, scopeErr)
+		// bloomAdd 与作用域解耦（#204）：bloom 元素刻意不按作用域切分，
+		// 不消费 scope——作用域失败只跳过 invalidate，事务内 Create 的
+		// 新 ID 必须照常补录（bloom 只增不减，错过即被 bloomGate 判
+		// 「绝对不存在」且无 TTL 兜底、永不自愈）。
+		r.bloomAdd(context.WithoutCancel(ctx), tw.createdIDs())
 		return nil
 	}
 	r.applyCollected(context.WithoutCancel(ctx), scope, tw)
@@ -107,6 +112,14 @@ func (t *txCollector[T, ID]) noteCreated(ids []ID) {
 	t.mu.Lock()
 	t.created = append(t.created, ids...)
 	t.mu.Unlock()
+}
+
+// createdIDs 读事务内收集到的创建 ID 清单（锁内读，#204）：作用域解析
+// 失败时 applyCollected 被整体跳过，bloom 补录仍需拿到 created 清单。
+func (t *txCollector[T, ID]) createdIDs() []ID {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.created
 }
 
 func (t *txCollector[T, ID]) GetByID(ctx context.Context, id ID) (*T, error) {

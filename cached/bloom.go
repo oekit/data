@@ -13,6 +13,15 @@ type BloomChecker interface {
 	Add(ctx context.Context, item string) error
 }
 
+// BloomMAdder 是布隆过滤器的可选批量能力（redisx.BloomFilter 的 MAdd
+// 天然满足）：一次往返写入一批元素。BloomChecker 刻意不含它以保持最小
+// 接口——bloomAdd 运行时经类型断言探测，具备则批量、否则退化为逐个
+// Add（#187：批量创建路径 N 次 Redis 往返收敛为 1 次）。
+type BloomMAdder interface {
+	// MAdd 批量写入元素（只增不减）。
+	MAdd(ctx context.Context, items ...string) ([]bool, error)
+}
+
 // WithBloomFilter 开启布隆防穿透前置门（可选件）：GetByID 回源前先问
 // bloom，判定"绝对不存在"的 ID 直接走 null marker，仓储零调用——
 // 在 null marker 之前再挡掉一层恶意 ID 扫描。
@@ -62,19 +71,32 @@ func (r *CachedRepository[T, ID]) bloomGate(ctx context.Context, id ID) bool {
 }
 
 // bloomAdd 把新 born 的实体 ID 写入 bloom（best-effort，失败上报不阻断）。
-// 仅在 Create 路径调用（Update/Delete 不动 bloom——只增不减的过滤器
-// 对已存在元素重复 Add 无害但对语义无益）。
+// 在 Create / BatchCreate 与事务提交路径调用（Update/Delete 不动 bloom——
+// 只增不减的过滤器对已存在元素重复 Add 无害但对语义无益）。
+//
+// 后端具备 BloomMAdder 批量能力时一次往返写入全部元素，否则退化为逐个
+// Add（#187：BatchCreate N 个实体不该付 N 次 Redis 往返）。
 //
 // 与 invalidate 同理用 WithoutCancel 派生 ctx（#141）：写已提交后再补录
 // bloom 不受请求取消殃及——丢失 Add 会让后续点读把存在的 ID 误判为
 // 「绝对不存在」而多打 DB（性能退化，非正确性事故）。
 func (r *CachedRepository[T, ID]) bloomAdd(ctx context.Context, ids []ID) {
-	if r.cfg.bloom == nil {
+	if r.cfg.bloom == nil || len(ids) == 0 {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
+	items := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if err := r.cfg.bloom.Add(ctx, r.bloomItem(id)); err != nil {
+		items = append(items, r.bloomItem(id))
+	}
+	if ma, ok := r.cfg.bloom.(BloomMAdder); ok {
+		if _, err := ma.MAdd(ctx, items...); err != nil {
+			r.report(ctx, "bloom", nil, err)
+		}
+		return
+	}
+	for _, item := range items {
+		if err := r.cfg.bloom.Add(ctx, item); err != nil {
 			r.report(ctx, "bloom", nil, err)
 		}
 	}

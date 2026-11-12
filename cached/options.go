@@ -93,7 +93,12 @@ func WithOnError[T any, ID comparable](fn OnErrorFunc) CachedOption[T, ID] {
 // 跨作用域串数据的根因。
 type ScopeKeyFunc func(ctx context.Context) (string, error)
 
-// WithScopeKey 注入作用域键解析器：作用域段进入**每一个**缓存键与布隆元素。
+// WithScopeKey 注入作用域键解析器：作用域段进入**每一个缓存键**。
+//
+// 例外：布隆过滤器的元素**刻意不按作用域切分**（#199，与 bloomItem 的
+// 实现口径一致）——bloom 只回答"可能存在/绝对不存在"、不缓存数据，共享
+// 元素不会跨租户泄漏；按作用域切分反而会让每个租户各自承担存量预热
+// 义务，放大"误判不存在"的风险。取舍理由见 WithBloomFilter / bloomItem。
 //
 // # 为什么需要
 //
@@ -111,7 +116,8 @@ type ScopeKeyFunc func(ctx context.Context) (string, error)
 // # 约束
 //
 //   - 作用域解析失败 ⇒ 操作失败（读路径降级直查仓储；写路径跳过失效并经
-//     onError 上报，TTL 兜底），**绝不**回落到无作用域的共享键；
+//     onError 上报，TTL 兜底；bloom 补录不消费作用域、照常执行，见 #204），
+//     **绝不**回落到无作用域的共享键；
 //   - 作用域键不得为空串——空串会被拒绝（否则等于没开隔离）；确实没有
 //     作用域时请返回一个占位值（如 "-"）。
 //

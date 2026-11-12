@@ -349,3 +349,63 @@ func TestDefaultFingerprintRejectsLossyArgs(t *testing.T) {
 		t.Fatal("不同取值必须产生不同指纹")
 	}
 }
+
+// 容器形态的无区分度参数同样必须 fail-closed（#197）：切片/map 包住的
+// {} 元素让容器编码不再恰为 {} / null，旧判据（只认整段恰为 {} / null）
+// 放行 ⇒ 两条不同查询同指纹串数据。
+func TestDefaultFingerprintRejectsLossyContainerArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		arg  any
+	}{
+		{"切片元素无区分度", []valuerLike{{v: 1}}},
+		{"map 值无区分度", map[string]any{"k": valuerLike{v: 1}}},
+		{"嵌套容器", []any{[]any{valuerLike{v: 1}}}},
+		{"容器含 null 元素", []any{nil, 1}},
+	}
+	for _, tc := range cases {
+		q := crud.NewQuery().Where("data", "IN", tc.arg)
+		fp, err := cached.DefaultFingerprint[user](q.Spec())
+		if err == nil || fp != "" {
+			t.Fatalf("%s: 必须拒绝指纹，got fp=%q err=%v", tc.name, fp, err)
+		}
+	}
+
+	// 对照：容器内全部元素可区分时照常指纹，且不同取值指纹不同。
+	f1, err1 := cached.DefaultFingerprint[user](crud.NewQuery().Where("data", "IN", []int64{1, 2}).Spec())
+	f2, err2 := cached.DefaultFingerprint[user](crud.NewQuery().Where("data", "IN", []int64{3, 4}).Spec())
+	if err1 != nil || err2 != nil || f1 == "" || f2 == "" {
+		t.Fatalf("可区分容器参数不应拒绝: %q/%v %q/%v", f1, err1, f2, err2)
+	}
+	if f1 == f2 {
+		t.Fatal("不同取值必须产生不同指纹")
+	}
+}
+
+// 端到端回归（#197）：两条语义不同的 IN 查询（元素无区分度，旧判据下
+// 同指纹）必须各自回源拿到各自的行——修复前第二条直接命中第一条的
+// 查询缓存条目（串数据，repo 只被回源一次）。
+func TestQueryCacheLossyContainerCollisionDegrades(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	repo.byID[1] = &user{ID: 1, Name: "row-1"}
+	ctx := context.Background()
+	cr := newQueryCachedRepo(repo)
+
+	got1, err := cr.GetOne(ctx, crud.NewQuery().Where("data", "IN", []valuerLike{{v: 1}}))
+	if err != nil || got1 == nil || got1.Name != "row-1" {
+		t.Fatalf("GetOne q1 = %v, %v; want row-1", got1, err)
+	}
+
+	// 仓储状态翻转：v=2 的查询语义上依赖 row-2。
+	repo.mu.Lock()
+	repo.byID = map[int64]*user{2: {ID: 2, Name: "row-2"}}
+	repo.mu.Unlock()
+
+	got2, err := cr.GetOne(ctx, crud.NewQuery().Where("data", "IN", []valuerLike{{v: 2}}))
+	if err != nil || got2 == nil || got2.Name != "row-2" {
+		t.Fatalf("GetOne q2 = %v, %v; want row-2（同指纹命中 q1 缓存条目即串数据）", got2, err)
+	}
+	if n := repo.count("GetOne"); n != 2 {
+		t.Fatalf("repo.GetOne calls = %d, want 2（无区分度容器参数必须降级直通，各自回源）", n)
+	}
+}
