@@ -61,6 +61,15 @@ func NewRepository[T any, ID comparable](repo crud.Repository[T, ID], newCache C
 	// 缓存 miss 热路径不再逐次反射。
 	cfg.idAcc = resolveIDAccessor[T, ID](cfg.idFn)
 	cfg.decodeIDFn = resolveIDDecoder[T, ID](cfg.decode)
+	// 构造期 fail-fast（#210）：开启 WithBloomFilter 时必须能解析实体 ID
+	// （WithID 注入，或 GetID() 方法 / 名为 "ID" 的可导出字段缺省探测命中）。
+	// 否则 Create 落库成功后 entityIDs 恒空，bloom 补录零信号空转——新 ID
+	// 永不进 bloom，点读被 bloomGate 判「绝对不存在」走 null marker，已
+	// 落库的行恒 ErrNotFound 且无自愈路径（bloom 只增不减，Create 是唯一
+	// 补录点）。缺 ID 访问器的「TTL 兜底」降级只在未开 bloom 时成立。
+	if cfg.bloom != nil && cfg.idAcc == nil {
+		panic("cached: 开启 WithBloomFilter 时必须能解析实体 ID（注入 WithID，或实体提供 GetID() 方法 / 名为 ID 的可导出字段）——否则新实体的点读会被布隆前置门永久判为不存在（数据消失级事故），装配期即拒绝")
+	}
 	r := &CachedRepository[T, ID]{cfg: cfg}
 	r.entity = newCache(r.source)
 	if r.entity == nil {
