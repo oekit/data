@@ -23,7 +23,7 @@ func TestTypeIdentity(t *testing.T) {
 	var pr *gormx.PageResponse[int]
 	testsame.Assert[*pkgpagination.PageResponse[int]](pr) // alias-of-alias 同一
 
-	sr := gormx.NewSingletonRepo[*testModel](nil, nil)
+	sr := gormx.NewSingletonRepo[*testModel](nil, func() *testModel { return &testModel{} })
 	testsame.Assert[*gormxsrc.SingletonRepo[*testModel]](sr) // 门面 → 源
 }
 
