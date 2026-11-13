@@ -223,3 +223,107 @@ func TestBloomAddFallsBackPerID(t *testing.T) {
 		t.Fatalf("退化路径元素照常补录: %v", bf.items)
 	}
 }
+
+// —— registry#224 同族：data cached bloom 漏录降级与自愈 ——
+
+// flakyBloom 前 failNext 次写失败（模拟 Redis 抖动），并记录写批次与
+// Exists 调用数（区分降级期/恢复期 gate 是否走 bloom 查询）。
+type flakyBloom struct {
+	*fakeBloom
+	mu          sync.Mutex
+	failNext    int
+	maddBatches [][]string
+	existsCalls int
+}
+
+func (f *flakyBloom) Exists(ctx context.Context, item string) (bool, error) {
+	f.mu.Lock()
+	f.existsCalls++
+	f.mu.Unlock()
+	return f.fakeBloom.Exists(ctx, item)
+}
+
+func (f *flakyBloom) MAdd(ctx context.Context, items ...string) ([]bool, error) {
+	f.mu.Lock()
+	cp := make([]string, len(items))
+	copy(cp, items)
+	f.maddBatches = append(f.maddBatches, cp)
+	if f.failNext > 0 {
+		f.failNext--
+		f.mu.Unlock()
+		return nil, errors.New("redis: connection reset")
+	}
+	f.mu.Unlock()
+	f.fakeBloom.mu.Lock()
+	defer f.fakeBloom.mu.Unlock()
+	for _, item := range items {
+		f.items[item] = true
+	}
+	return make([]bool, len(items)), nil
+}
+
+// TestBloomAddFailureDegradesGateAndSelfHeals（#224 回归锚点）：补录写
+// 失败后点读不得被 gate 拒成 ErrNotFound（数据消失级），且漏录 ID 必须在
+// 下一次成功补录时合并重放、前置门随后恢复。
+func TestBloomAddFailureDegradesGateAndSelfHeals(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	bf := &flakyBloom{fakeBloom: &fakeBloom{items: map[string]bool{}}}
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory,
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }),
+		cached.WithBloomFilter[user, int64](bf),
+	)
+
+	// ① 首次 Create：行落库成功、bloom 补录失败（Redis 抖动）。
+	bf.mu.Lock()
+	bf.failNext = 1
+	bf.mu.Unlock()
+	if err := cr.Create(ctx, &user{ID: 7, Name: "n"}); err != nil {
+		t.Fatalf("Create 应成功（写已提交，bloom 是 best-effort）: %v", err)
+	}
+
+	// ② 降级期点读：bloom 漏录会让 gate 判「绝对不存在」——必须 fail-open
+	// 直查库读到行（修复前：null marker ⇒ ErrNotFound，数据消失且不自愈）。
+	got, err := cr.GetByID(ctx, 7)
+	if err != nil || got == nil || got.Name != "n" {
+		t.Fatalf("★ #224 漏录降级期点读必须命中（此前被 gate 拒成 ErrNotFound）: got=%v err=%v", got, err)
+	}
+	bf.mu.Lock()
+	gateCalls := bf.existsCalls
+	bf.mu.Unlock()
+	if gateCalls != 0 {
+		t.Fatalf("降级期不应走 bloom 查询（fail-open 直查库）, Exists 调用=%d", gateCalls)
+	}
+
+	// ③ 写恢复后的下一次 Create：本批与漏录账本合并重放（一次 MAdd）。
+	if err = cr.Create(ctx, &user{ID: 8, Name: "m"}); err != nil {
+		t.Fatalf("第二次 Create: %v", err)
+	}
+	bf.mu.Lock()
+	lastBatch := bf.maddBatches[len(bf.maddBatches)-1]
+	bf.mu.Unlock()
+	replayed := false
+	for _, item := range lastBatch {
+		if item == "7" {
+			replayed = true
+		}
+	}
+	if !replayed {
+		t.Fatalf("★ 漏录 ID 必须在下次成功补录时合并重放, last batch=%v", lastBatch)
+	}
+	if !bf.items["7"] {
+		t.Fatal("重放后 bloom 应含漏录 ID 7")
+	}
+
+	// ④ 前置门恢复：未知 ID 重新走 bloom 查询并被拦截。
+	_, err = cr.GetByID(ctx, 999)
+	if !errors.Is(err, crud.ErrNotFound) {
+		t.Fatalf("恢复后 gate 应恢复拦截, err=%v", err)
+	}
+	bf.mu.Lock()
+	callsAfter := bf.existsCalls
+	bf.mu.Unlock()
+	if callsAfter == 0 {
+		t.Fatal("★ 恢复后点读应重新走 bloom 查询（前置门已恢复）")
+	}
+}

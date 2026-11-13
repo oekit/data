@@ -9,6 +9,8 @@ import (
 
 	"github.com/oekit/gormx/crud"
 	"github.com/oekit/pkg/cache"
+	"sync"
+	"sync/atomic"
 )
 
 // 本文件是装饰器本体与读路径职责（#179 拆分）：CachedRepository 类型、
@@ -23,6 +25,13 @@ import (
 type CachedRepository[T any, ID comparable] struct {
 	cfg    config[T, ID]
 	entity cache.CacheAside[T]
+
+	// bloom 补录失败的漏录账本与降级快照（#224）：bloomAdd 写失败的元素
+	// 进 pending，下一次成功补录时合并重放；bloomDown 是「pending 非空」
+	// 的 atomic 快照，bloomGate 据此 fail-open 直查库（读热路径无锁）。
+	bloomMu      sync.Mutex
+	bloomPending map[string]struct{}
+	bloomDown    atomic.Bool
 }
 
 // 编译期接口契约：装饰器必须完整满足（含事务能力）仓储接口，
