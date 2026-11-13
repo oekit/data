@@ -1,4 +1,4 @@
-// Package redisx 是 data 门面子包：Redis 客户端封装——String/Hash/List/Set/ZSet/Counter/BloomFilter/Batch/PubSub 操作。
+// Package redisx 是 data 门面子包：Redis 客户端封装——String/Hash/List/Set/ZSet/Counter/BloomFilter/PubSub 操作。
 //
 // re-export 自 github.com/oekit/redisx：类型为泛型 type alias（与源包**完全同一类型**，
 // 双向赋值互通）；非泛型函数/变量经 var 引用同一函数值。源包新增导出符号时
@@ -7,12 +7,6 @@ package redisx
 
 import src "github.com/oekit/redisx"
 
-// Batch 批量命令集合（redisx#161 起源包标记 deprecated：Pipeline 的功能
-// 子集旧类型，行为不变、void 返回签名保留兼容）。壳仍转发——门面跟版税
-// 的契约是导出面镜像源包，源包未删本壳不裁；新代码请用 Pipeline。
-//
-//nolint:staticcheck // SA1019：转发源包 deprecated 符号是门面契约
-type Batch = src.Batch
 type BloomFilter = src.BloomFilter
 type Client = src.Client
 type Counter = src.Counter
