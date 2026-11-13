@@ -50,6 +50,11 @@ type CachedOption[T any, ID comparable] func(*config[T, ID])
 // 天然满足；返回类型须与 ID 精确一致）→ 名为 "ID" 的可导出字段（类型
 // 须与 ID 一致）；两者都失败时写路径只 bump 查询版本、无法删实体键
 // （点读一致性退化为 TTL 兜底）。
+//
+// ⚠️ 该「TTL 兜底」承诺仅在未开启 WithBloomFilter 时成立（#210）：开启
+// bloom 时缺 ID 访问器是「新实体点读永久 NotFound」——Create 无法补录
+// bloom，点读被前置门判「绝对不存在」且无自愈路径，并非 TTL 有界的退化。
+// 该组合在 NewRepository 构造期 fail-fast 拒绝。
 func WithID[T any, ID comparable](fn func(*T) ID) CachedOption[T, ID] {
 	return func(c *config[T, ID]) { c.idFn = fn }
 }
