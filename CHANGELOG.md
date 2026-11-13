@@ -1,5 +1,9 @@
 
 
+## [v0.22.0] — 2026-11-13
+
+- **BREAKING**：redisx 门面删除 Batch 类型别名（源包 redisx v0.16.0 已删 Batch/NewBatch，门面跟版税同步裁剪）。下游迁移：data/redisx.Batch → data/redisx.Pipeline（方法同构）。地板全量追平 redisx v0.16.0 / pkg v0.48.0 / concurrency v0.36.0 / logx v0.11.0 / gormx v0.12.0——下游升级后需 go mod tidy。
+
 ## [v0.21.3] — 2026-11-13
 
 - fix(cached): bloom 补录失败降级门 + 漏录账本重放自愈（#224 P1）。写失败进 pending 账本并置降级快照（gate fail-open 直查库兜住正确性），下次成功补录合并一批重放、恢复前置门——Redis 恢复后首次写入即自愈；并发下账本只删本批覆盖元素。原「多打 DB 性能退化」注释定性错误一并修正为拒读正确性事故。
