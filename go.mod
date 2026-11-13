@@ -10,7 +10,7 @@ require (
 	github.com/oekit/logx v0.11.0
 	github.com/oekit/pkg v0.48.0
 	github.com/oekit/redisx v0.16.0
-	github.com/oekit/timertask v0.5.3
+	github.com/oekit/timertask v0.5.4
 	github.com/redis/go-redis/v9 v9.23.0
 	gorm.io/gorm v1.31.2
 )
