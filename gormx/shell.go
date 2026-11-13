@@ -80,3 +80,10 @@ func LikePrefix(s string) string { return src.LikePrefix(s) }
 
 // LikeSuffix 转义后包裹为 %s（后缀匹配）。
 func LikeSuffix(s string) string { return src.LikeSuffix(s) }
+
+// ---- 方言表达式助手（gormx dialect.go）----
+
+var DateBucket = src.DateBucket
+var NowMinusDays = src.NowMinusDays
+var QuoteIdentifier = src.QuoteIdentifier
+var TodayMinusDays = src.TodayMinusDays

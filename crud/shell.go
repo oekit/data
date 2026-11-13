@@ -32,6 +32,11 @@ type UpdateOption = src.UpdateOption
 type Writer[T any, ID comparable] = src.Writer[T, ID]
 
 var ErrNotFound = src.ErrNotFound
+
+// ErrDuplicateKey 是唯一键冲突的哨兵错误（gormx#181）：mysql 1062 / sqlite unique
+// 等驱动错误归一到此，errors.Is 分型不再做驱动文案子串匹配。
+var ErrDuplicateKey = src.ErrDuplicateKey
+
 var NewQuery = src.NewQuery
 
 // WithNotFoundErr 把 not-found 对外错误固定替换为 err（gormx v0.7.0，gormx#62）。
