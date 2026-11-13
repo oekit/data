@@ -1,5 +1,11 @@
 
 
+## [v0.21.3] — 2026-11-13
+
+- fix(cached): bloom 补录失败降级门 + 漏录账本重放自愈（#224 P1）。写失败进 pending 账本并置降级快照（gate fail-open 直查库兜住正确性），下次成功补录合并一批重放、恢复前置门——Redis 恢复后首次写入即自愈；并发下账本只删本批覆盖元素。原「多打 DB 性能退化」注释定性错误一并修正为拒读正确性事故。
+
+关联问题单：data#224。
+
 ## [v0.21.2] — 2026-11-13
 
 - 10 单修复批：twolevel err 字面量清零（#200）、pkg/distlock 契约身份测试（#195）、busSub 僵尸订阅识别（#185）、BatchGetter 键存在性语义（#198）、argsDistinguishable fail-closed（#197）、BloomMAdder 可选批量（#187）、单遍序列化（#186）、三重构造期 panic（#184）、godoc bloom 例外（#199）、Delivery 符号转发（#196）；地板对齐 pkg v0.47.0。
