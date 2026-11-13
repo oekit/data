@@ -296,7 +296,7 @@ func TestBloomAddFailureDegradesGateAndSelfHeals(t *testing.T) {
 	}
 
 	// ③ 写恢复后的下一次 Create：本批与漏录账本合并重放（一次 MAdd）。
-	if err := cr.Create(ctx, &user{ID: 8, Name: "m"}); err != nil {
+	if err = cr.Create(ctx, &user{ID: 8, Name: "m"}); err != nil {
 		t.Fatalf("第二次 Create: %v", err)
 	}
 	bf.mu.Lock()
@@ -311,7 +311,7 @@ func TestBloomAddFailureDegradesGateAndSelfHeals(t *testing.T) {
 	if !replayed {
 		t.Fatalf("★ 漏录 ID 必须在下次成功补录时合并重放, last batch=%v", lastBatch)
 	}
-	if !bf.fakeBloom.items["7"] {
+	if !bf.items["7"] {
 		t.Fatal("重放后 bloom 应含漏录 ID 7")
 	}
 
