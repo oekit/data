@@ -5,22 +5,22 @@ go 1.26.0
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/glebarez/sqlite v1.11.0
-	github.com/oekit/concurrency v0.36.0
-	github.com/oekit/gormx v0.12.0
+	github.com/oekit/concurrency v0.36.1
+	github.com/oekit/gormx v0.12.1
 	github.com/oekit/logx v0.11.0
 	github.com/oekit/pkg v0.48.0
 	github.com/oekit/redisx v0.16.0
-	github.com/oekit/timertask v0.5.4
+	github.com/oekit/timertask v0.5.5
 	github.com/redis/go-redis/v9 v9.23.0
 	gorm.io/gorm v1.31.2
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/glebarez/go-sqlite v1.23.0 // indirect
-	github.com/go-sql-driver/mysql v1.8.1 // indirect
+	github.com/go-sql-driver/mysql v1.10.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
