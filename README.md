@@ -110,7 +110,8 @@ _ = svc // Create/Get/GetOne/List/Update/Delete 全部带缓存编排
 "改一行 → 该表全部列表缓存失效"，用命中率换一致性；点读不受影响。
 
 ```go
-// 三个缓存实例：GetOne 结果 / List 整页 / 表级版本号（版本键要配长 TTL）
+// 三个缓存实例：GetOne 结果 / List 整页 / 表级版本号（版本键建议长 TTL：
+// 过期只触发一次重建、不致脏读，但频繁过期徒增回源压力）
 entityQ := cache.NewLocalCache(cache.LocalConfig[User]{TTL: 5 * time.Minute})
 page := cache.NewLocalCache(cache.LocalConfig[cached.QueryPage[User]]{TTL: 5 * time.Minute})
 versions := cache.NewLocalCache(cache.LocalConfig[string]{TTL: 24 * time.Hour})
@@ -127,7 +128,9 @@ repo := cached.NewRepository[User, int64](rawRepo, factory,
 )
 ```
 
-约束：`ForUpdate` 读永不缓存（锁读必须拿最权威数据）；负结果不缓存；
+约束：`ForUpdate` 读永不缓存（锁读必须拿最权威数据）；负结果在后端实现
+`cache.HitGetter` 时写负标记防穿透（LocalCache 具备该能力；包了
+SingleFlightCache 或使用 RedisCache 的后端当前不具备，负结果每次回源）；
 查询参数含不可区分取值的类型（如非导出字段的 Valuer 结构体，JSON 恒编
 `{}`；包括被切片/map 等容器包住的形态，#197——判据递归下钻，容器内任何
 `{}` / `null` 子树即整段无区分度）时拒绝指纹、降级直通——绝不允许不同

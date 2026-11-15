@@ -115,31 +115,47 @@ func TestGetOneCachedUntilWrite(t *testing.T) {
 	}
 }
 
-// GetOne 负结果不缓存：两次 miss 都回源（普通 Cache 接口无 null marker 通道）。
-func TestGetOneNegativeNotCached(t *testing.T) {
+// GetOne 负结果在 HitGetter 后端（LocalCache）写负标记（#253）：第二次
+// 直接命中负标记，不再回源；经本仓储的写操作 bump 版本后立即失效。
+func TestGetOneNegativeCachedWithHitGetter(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	ctx := context.Background()
 	cr := newQueryCachedRepo(repo)
+	q := crud.NewQuery().Where("id", "=", 99)
 
-	for i := 0; i < 2; i++ {
-		if _, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 99)); !errors.Is(err, crud.ErrNotFound) {
+	for i := range 2 {
+		if _, err := cr.GetOne(ctx, q); !errors.Is(err, crud.ErrNotFound) {
 			t.Fatalf("GetOne #%d err = %v, want ErrNotFound", i+1, err)
 		}
 	}
+	if n := repo.count("GetOne"); n != 1 {
+		t.Fatalf("repo.GetOne calls = %d, want 1（负结果命中负标记，不得回源）", n)
+	}
+
+	// 经仓储写入（bump 版本）后负标记必须立即失效
+	if err := cr.Create(ctx, &user{ID: 99, Name: "late"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := cr.GetOne(ctx, q)
+	if err != nil || got == nil || got.Name != "late" {
+		t.Fatalf("写后 GetOne = %v, %v; want late（负标记未被版本 bump 失效）", got, err)
+	}
 	if n := repo.count("GetOne"); n != 2 {
-		t.Fatalf("repo.GetOne calls = %d, want 2（负结果不缓存）", n)
+		t.Fatalf("repo.GetOne calls after write = %d, want 2", n)
 	}
 }
 
-// List 负结果不缓存（#167）：空页与 GetOne 负结果同口径——普通 Cache 无
-// null marker 通道，空页以正形态落盘会与「有行」不可分；带外写入（行入库
-// 但不经过本仓储 ⇒ 表级版本号不 bump）时 List 必须与 GetOne 结论一致。
-func TestListNegativeNotCached(t *testing.T) {
+// List 空页在 HitGetter 后端写负标记（#253）：第二次不再回源；经本仓储
+// 的写操作 bump 版本后立即失效。
+//
+// 与 #167 历史口径的差异（有意）：负结果一旦缓存，**带外**写入（不经过
+// 本仓储、不 bump 版本）在条目 TTL 内不可见——这是负结果防穿透的必然
+// 取舍；经本仓储的写路径保持一致（版本 bump）。
+func TestListNegativeCachedWithHitGetter(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	ctx := context.Background()
 	cr := newQueryCachedRepo(repo)
 
-	// 空结果连续 2 次：第二次必须回源（repo.List 调用次数=2）
 	for i := range 2 {
 		items, total, err := cr.List(ctx, crud.NewQuery())
 		if err != nil {
@@ -149,28 +165,57 @@ func TestListNegativeNotCached(t *testing.T) {
 			t.Fatalf("List #%d = %d items/%d total, want 0/0", i+1, len(items), total)
 		}
 	}
-	if n := repo.count("List"); n != 2 {
-		t.Fatalf("repo.List calls = %d, want 2（负结果不缓存）", n)
+	if n := repo.count("List"); n != 1 {
+		t.Fatalf("repo.List calls = %d, want 1（空页命中负标记，不得回源）", n)
 	}
 
-	// 带外写入后 List 立即可见（空页若被缓存，整条 TTL 内新行不可见）
-	repo.mu.Lock()
-	repo.byID[2] = &user{ID: 2, Name: "bob"}
-	repo.mu.Unlock()
-
+	if err := cr.Create(ctx, &user{ID: 1, Name: "new"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
 	items, total, err := cr.List(ctx, crud.NewQuery())
 	if err != nil {
-		t.Fatalf("List after out-of-band write: %v", err)
+		t.Fatalf("写后 List: %v", err)
 	}
-	if total != 1 || len(items) != 1 {
-		t.Fatalf("List after out-of-band write = %d items/%d total, want 1/1（空页被缓存会让带外行不可见）", len(items), total)
+	if len(items) != 1 || total != 1 {
+		t.Fatalf("写后 List = %d items/%d total, want 1/1（空页负标记未被版本 bump 失效）", len(items), total)
 	}
-	// 同一时刻 GetOne 必须同口径看到该行（结论一致性对照）
-	if got, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 2)); err != nil || got == nil {
-		t.Fatalf("GetOne after out-of-band write = %v, %v; want 命中", got, err)
+	if n := repo.count("List"); n != 2 {
+		t.Fatalf("repo.List calls after write = %d, want 2", n)
 	}
-	if n := repo.count("List"); n != 3 {
-		t.Fatalf("repo.List calls after out-of-band write = %d, want 3", n)
+}
+
+// plainCache 抹掉后端可选能力接口（只保留 Cache 最小面），模拟不具备
+// HitGetter 的后端（SingleFlightCache / RedisCache 当前形态）。
+type plainCache[T any] struct{ dcache.Cache[T] }
+
+// 不具备 HitGetter 的后端保持历史行为：负结果既不写标记也不可识别，
+// 每次回源（#253 的对照面——修复不得把「无法区分」当成「确定不存在」）。
+func TestNegativeNotCachedWithoutHitGetter(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	ctx := context.Background()
+
+	entityQ := &plainCache[user]{Cache: dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})}
+	pageQ := &plainCache[cached.QueryPage[user]]{Cache: dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})}
+	versions := dcache.NewLocalCache(dcache.LocalConfig[string]{TTL: time.Hour})
+	qc, err := cached.NewQueryCache[user](entityQ, pageQ, versions, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("NewQueryCache: %v", err)
+	}
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
+
+	for i := range 2 {
+		if _, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 99)); !errors.Is(err, crud.ErrNotFound) {
+			t.Fatalf("GetOne #%d err = %v, want ErrNotFound", i+1, err)
+		}
+		if _, _, err := cr.List(ctx, crud.NewQuery()); err != nil {
+			t.Fatalf("List #%d: %v", i+1, err)
+		}
+	}
+	if n := repo.count("GetOne"); n != 2 {
+		t.Fatalf("repo.GetOne calls = %d, want 2（无 HitGetter 时负结果不得缓存）", n)
+	}
+	if n := repo.count("List"); n != 2 {
+		t.Fatalf("repo.List calls = %d, want 2（无 HitGetter 时空页不得缓存）", n)
 	}
 }
 

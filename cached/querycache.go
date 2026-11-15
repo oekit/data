@@ -46,6 +46,11 @@ const fpVersion = "v1"
 // entity 键空间与点读键空间（"前缀:类型:id:N"）互不重叠，因此 entity
 // 可以复用点读后端的同一个缓存实例（本地缓存直接传同一实例；Redis
 // 后端传同前缀实例即可）。
+//
+// 负结果（GetOne 无行 / List 空页）仅在后端实现 cache.HitGetter 时
+// 落盘为负标记（entity：nil 值；page：空 QueryPage），读路径以
+// GetEx 的 hit 标志区分负命中与 miss（#253）；无该能力的后端保持
+// 「负结果每次回源」。负标记同样受条目 TTL 与表级版本 bump 约束。
 type QueryCache[T any] struct {
 	entity      cache.Cache[T]
 	page        cache.Cache[QueryPage[T]]
