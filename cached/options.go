@@ -18,6 +18,10 @@ type CacheFactory[T any] func(source cache.SourceFunc[T]) cache.CacheAside[T]
 // （op="backfill"）、指纹失败（op="fingerprint"）、写后失效失败
 // （op="invalidate"）。所有场景都是"降级继续 + TTL 兜底"，钩子只管
 // 观测（记日志/打点），不能也不需要参与决策。
+//
+// 指纹降级有两条上报路径且都可辨（#251）：指纹函数返回 error 时 err
+// 即该错误；返回空串（合法的「本次别缓存」形态）时 err 为哨兵
+// ErrFingerprintDegraded（errors.Is 判定）。两者 op 同为 "fingerprint"。
 type OnErrorFunc func(ctx context.Context, op string, keys []string, err error)
 
 // config 是装饰器配置。

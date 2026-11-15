@@ -161,7 +161,8 @@ func (c *TwoLevelCache[T]) SetWithTTL(ctx context.Context, key string, value *T,
 }
 
 // Del 双删两级（先远端后本地，理由见包文档）；挂 bus 时发布失效消息
-// （best-effort，发布失败由远端实例 TTL 兜底）。key 不存在时幂等不报错。
+// （best-effort，发布失败由远端实例 TTL 兜底；发布不随调用方 ctx 取消，
+// #252）。key 不存在时幂等不报错。
 func (c *TwoLevelCache[T]) Del(ctx context.Context, key string) error {
 	// errors.Join 的参数按从左到右求值：远端先删（见包文档的顺序论证）
 	err := errors.Join(c.remote.Del(ctx, key), c.local.Del(ctx, key))
@@ -171,7 +172,8 @@ func (c *TwoLevelCache[T]) Del(ctx context.Context, key string) error {
 	return err
 }
 
-// DelBatch 双删两级（批量口径同 Del）。空 keys 为幂等 no-op。
+// DelBatch 双删两级（批量口径同 Del，广播同样不随调用方 ctx 取消）。
+// 空 keys 为幂等 no-op。
 func (c *TwoLevelCache[T]) DelBatch(ctx context.Context, keys ...string) error {
 	err := errors.Join(c.remote.DelBatch(ctx, keys...), c.local.DelBatch(ctx, keys...))
 	if c.bus != nil {

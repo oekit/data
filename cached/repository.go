@@ -168,7 +168,31 @@ func (r *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (*T, error
 	return v, nil
 }
 
-// GetOne 条件单读：开启查询缓存时走「版本号 + 指纹」键，负结果不缓存，
+// getQueryHit 读查询缓存并区分「未命中」与「命中」：后端实现
+// cache.HitGetter 时走 GetEx——hit=true/value=nil 即负标记命中，与
+// miss 可辨；不具备该能力时退回 Get，此时 hit 只表示值非 nil，nil
+// 一律按 miss 回源（负结果不可缓存，历史行为）。
+func getQueryHit[T any](ctx context.Context, c cache.Cache[T], key string) (v *T, hit bool, err error) {
+	if hg, ok := c.(cache.HitGetter[T]); ok {
+		return hg.GetEx(ctx, key)
+	}
+	v, err = c.Get(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
+	return v, v != nil, nil
+}
+
+// canCacheNegative 负结果缓存的前提：后端能区分「nil 真值/负标记命中」
+// 与「miss」（HitGetter）。无该能力时写 nil 与 miss 不可分，写标记不
+// 改变读语义，只会白付一次写。
+func canCacheNegative[T any](c cache.Cache[T]) bool {
+	_, ok := c.(cache.HitGetter[T])
+	return ok
+}
+
+// GetOne 条件单读：开启查询缓存时走「版本号 + 指纹」键；后端具备
+// HitGetter 能力时负结果写负标记防穿透（#253），否则负结果每次回源；
 // ForUpdate 读与指纹失败降级直查。
 func (r *CachedRepository[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T, error) {
 	if r.cfg.qc == nil {
@@ -182,17 +206,33 @@ func (r *CachedRepository[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T
 	if !ok {
 		return r.cfg.repo.GetOne(ctx, q)
 	}
-	v, err := r.cfg.qc.entity.Get(ctx, key)
+	v, hit, err := getQueryHit(ctx, r.cfg.qc.entity, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)
 		return r.cfg.repo.GetOne(ctx, q)
 	}
-	if v != nil {
+	if hit {
+		if v == nil {
+			// 负标记命中：GetOne 的 nil 结果没有「nil 真值」语义，
+			// 无行即 ErrNotFound（与点读 null marker 同口径）。
+			return nil, crud.ErrNotFound
+		}
 		return v, nil
 	}
 	entity, err := r.cfg.repo.GetOne(ctx, q)
 	if err != nil {
+		// 负结果写标记（#253）：仅当后端具备 HitGetter 时写 nil——
+		// 无该能力时 nil 与 miss 不可分，写标记不改变读语义（#167）；
+		// 条目 TTL 兜底，经本仓储的写操作 bump 版本即失效。
+		if errors.Is(err, crud.ErrNotFound) && canCacheNegative(r.cfg.qc.entity) {
+			if serr := r.cfg.qc.entity.SetWithTTL(ctx, key, nil, r.cfg.qc.ttl); serr != nil {
+				r.report(ctx, "backfill", []string{key}, serr)
+			}
+		}
 		return nil, err
+	}
+	if entity == nil {
+		return nil, nil // 契约外形态 (nil, nil)：原样透传，不写负标记
 	}
 	if err := r.cfg.qc.entity.SetWithTTL(ctx, key, entity, r.cfg.qc.ttl); err != nil {
 		r.report(ctx, "backfill", []string{key}, err)
@@ -201,7 +241,8 @@ func (r *CachedRepository[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T
 }
 
 // List 条件列表：开启查询缓存时走「版本号 + 指纹」键缓存整页结果，
-// 任意写操作 bump 版本整体失效。
+// 任意写操作 bump 版本整体失效；后端具备 HitGetter 能力时空页负结果
+// 也写标记防穿透（#253），否则空页每次回源。
 func (r *CachedRepository[T, ID]) List(ctx context.Context, q *crud.Query) ([]T, int64, error) {
 	if r.cfg.qc == nil {
 		return r.cfg.repo.List(ctx, q)
@@ -214,23 +255,21 @@ func (r *CachedRepository[T, ID]) List(ctx context.Context, q *crud.Query) ([]T,
 	if !ok {
 		return r.cfg.repo.List(ctx, q)
 	}
-	page, err := r.cfg.qc.page.Get(ctx, key)
+	page, hit, err := getQueryHit(ctx, r.cfg.qc.page, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)
 		return r.cfg.repo.List(ctx, q)
 	}
-	if page != nil {
+	if hit && page != nil {
 		return page.Items, page.Total, nil
 	}
 	items, total, err := r.cfg.repo.List(ctx, q)
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(items) == 0 && total == 0 {
-		// 负结果不入查询缓存（#167，与 doc/README「负结果不缓存」契约对齐）：
-		// 普通 Cache 无 null marker 通道，空页以正形态落盘会与「有行」不可分；
-		// 带外写入（不 bump 表级版本号）时 List 与 GetOne 会结论相反。空页
-		// 每次回源（GetOne 负结果路径同口径：直接上抛、不写缓存）。
+	if len(items) == 0 && total == 0 && !canCacheNegative(r.cfg.qc.page) {
+		// 后端无法区分 miss 与空页真值：空页以正形态落盘会与「有行」不可分
+		// （#167 历史口径），保持每次回源。
 		return items, total, nil
 	}
 	if err := r.cfg.qc.page.SetWithTTL(ctx, key, &QueryPage[T]{Items: items, Total: total}, r.cfg.qc.ttl); err != nil {
@@ -255,9 +294,9 @@ func (r *CachedRepository[T, ID]) Count(ctx context.Context, q *crud.Query) (int
 }
 
 // queryCacheKey 计算查询缓存键：ForUpdate 永不缓存；指纹失败降级直通；
-// 版本 miss/读失败以空版本兜底（旧版本键查不到即重建；注意若版本后端
-// 持续故障而条目后端正常，空版本键可能命中上一轮降级窗口的旧条目——
-// 仍受条目 TTL 约束）。
+// 版本键缺失/过期时签发新令牌（旧令牌下的条目自然作废），版本读失败
+// 降级直通——**空版本键绝不参与命中**（#250）：空版本键上的历史条目
+// 不在任何 bump 的失效范围内，命中即写后读旧值。
 func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope string, q *crud.Query, kind string) (string, bool) {
 	var spec crud.QuerySpec
 	if q != nil {
@@ -267,18 +306,40 @@ func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope strin
 		return "", false
 	}
 	fp, err := r.cfg.qc.fingerprint(spec)
-	if err != nil || fp == "" {
+	if err != nil {
 		r.report(ctx, "fingerprint", nil, err)
+		return "", false
+	}
+	if fp == "" {
+		// 空串是契约允许的降级形态而非 error：必须以可识别哨兵上报，
+		// 否则 onError 因 err==nil 静默，降级在观测面上完全不可见（#251）。
+		r.report(ctx, "fingerprint", nil, ErrFingerprintDegraded)
 		return "", false
 	}
 	verKey := r.verKey(scope)
 	ver, err := r.cfg.qc.versions.Get(ctx, verKey)
 	if err != nil {
+		// 版本读失败时无法确认当前令牌：用空版本建键会回落到历史条目
+		// （空版本键不受任何 bump 约束），必须降级直通（#250）。
 		r.report(ctx, "read", []string{verKey}, err)
+		return "", false
 	}
 	current := ""
 	if ver != nil {
 		current = *ver
+	}
+	if current == "" {
+		// 版本键缺失/过期/被容量淘汰：签发新令牌替代空版本（#250）。
+		// 旧令牌下的条目自然脱离当前键空间（受各自 TTL 回收），版本
+		// 过期只导致一次重建，不致脏读——versions TTL 无需强制 ≥ 条目
+		// TTL。先 Set 后回源：若与写路径 bump 竞争，覆盖发生后本次回源
+		// 必然读到提交后的数据，不会把写前旧值写进当前令牌。
+		token := newVersionToken()
+		if err := r.cfg.qc.versions.Set(ctx, verKey, &token); err != nil {
+			r.report(ctx, "read", []string{verKey}, err)
+			return "", false
+		}
+		current = token
 	}
 	return r.queryKey(scope, kind, current, fp), true
 }

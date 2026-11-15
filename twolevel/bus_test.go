@@ -2,6 +2,7 @@ package twolevel_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -73,6 +74,61 @@ func TestBusCrossInstanceEviction(t *testing.T) {
 			t.Fatal("3s 内 B 的 L1 未被广播驱逐")
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// 调用方 ctx 在删除瞬间已取消时，失效广播仍须送达（#252）：广播是
+// 「删除已发生」的告示，不得随请求生命周期死亡。用独立订阅直接观测
+// 频道（不经 L1 驱逐判定，避免发布者自身同步删除混淆观测面）。
+func TestDelBroadcastsWithCanceledCallerCtx(t *testing.T) {
+	mr := miniredis.RunT(t)
+	cacheA, _, _ := newBussedCache(t, mr, "canceled")
+
+	goredis := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = goredis.Close() })
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer probeCancel()
+	sub := goredis.Subscribe(probeCtx, busChannel)
+	t.Cleanup(func() { _ = sub.Close() })
+	if _, err := sub.Receive(probeCtx); err != nil {
+		t.Fatalf("订阅确认: %v", err)
+	}
+	msgs := sub.Channel()
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cases := []struct {
+		name string
+		del  func(context.Context) error
+		want []string
+	}{
+		{"Del", func(ctx context.Context) error { return cacheA.Del(ctx, "gone") }, []string{"gone"}},
+		{"DelBatch", func(ctx context.Context) error { return cacheA.DelBatch(ctx, "gone1", "gone2") }, []string{"gone1", "gone2"}},
+	}
+	for _, tc := range cases {
+		// 删除本身在取消 ctx 下可以失败（远端命令被 ctx 拒绝），
+		// 本用例只断言广播不受调用方 ctx 影响。
+		_ = tc.del(canceled)
+		select {
+		case msg := <-msgs:
+			var payload struct {
+				Keys []string `json:"keys"`
+			}
+			if err := json.Unmarshal([]byte(msg.Payload), &payload); err != nil {
+				t.Fatalf("%s 广播 payload 不可解析: %v", tc.name, err)
+			}
+			if len(payload.Keys) != len(tc.want) {
+				t.Fatalf("%s 广播 keys = %v, want %v", tc.name, payload.Keys, tc.want)
+			}
+			for i := range tc.want {
+				if payload.Keys[i] != tc.want[i] {
+					t.Fatalf("%s 广播 keys = %v, want %v", tc.name, payload.Keys, tc.want)
+				}
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: 取消的调用方 ctx 吞掉了失效广播（#252）", tc.name)
+		}
 	}
 }
 
