@@ -1,5 +1,14 @@
 
 
+## [v0.22.1] — 2026-11-15
+
+- 版本键过期不再脏读（#250）：版本键缺失/过期/淘汰即签发新令牌，空版本键退出键空间；版本后端读失败降级直通并上报
+- 指纹降级可观测（#251）：新增 ErrFingerprintDegraded 哨兵，空串降级从静默改为上报 op=fingerprint
+- Del/DelBatch 广播不吃调用方取消（#252）：bus.publish 统一 context.WithoutCancel，取消 ctx 后失效广播仍送达
+- 负结果防穿透（#253）：读面优先 HitGetter.GetEx 判负命中返回 ErrNotFound 并写负标记（TTL 兜底），写路径 bump 版本即失效——有意语义变更（#167 口径更新，文档已明示）
+
+关联问题单：data#250、data#251、data#252、data#253。
+
 ## [v0.22.0] — 2026-11-13
 
 - **BREAKING**：redisx 门面删除 Batch 类型别名（源包 redisx v0.16.0 已删 Batch/NewBatch，门面跟版税同步裁剪）。下游迁移：data/redisx.Batch → data/redisx.Pipeline（方法同构）。地板全量追平 redisx v0.16.0 / pkg v0.48.0 / concurrency v0.36.0 / logx v0.11.0 / gormx v0.12.0——下游升级后需 go mod tidy。
