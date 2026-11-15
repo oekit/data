@@ -21,7 +21,19 @@ type QueryPage[T any] struct {
 
 // FingerprintFunc 将查询物化形态折算为稳定的指纹字符串。
 // 返回 error 或空串时该次查询降级直通（绝不以错误指纹命中错误结果）。
+// 空串是契约允许的「本次别缓存」形态（可能不是故障），但它与 error
+// 降级在观测面上必须等价：queryCacheKey 会以 ErrFingerprintDegraded
+// 上报 op="fingerprint"（#251）。
 type FingerprintFunc func(spec crud.QuerySpec) (string, error)
+
+// ErrFingerprintDegraded 是指纹函数以空串降级的可识别哨兵（#251）。
+//
+// FingerprintFunc 返回 ("", nil) 表示「本次查询不缓存」而非故障，但若
+// 直接以 err==nil 上报，onError 钩子会因「无错误」而静默——空串降级
+// 在日志/打点/计数上完全不可见，查询缓存对该 workload 永久失效却无
+// 信号。queryCacheKey 用本哨兵调用 report，使「空串降级」与「error
+// 降级」在 onError 上可辨且都可见。
+var ErrFingerprintDegraded = errors.New("cached: 指纹函数返回空串，查询缓存降级直通")
 
 // fpVersion 是指纹算法版本号：QuerySpec 结构演进（新增字段等）时递增，
 // 避免新旧指纹碰撞——滚动发布窗口内新旧实例共写同一缓存时尤其必要。

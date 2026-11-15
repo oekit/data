@@ -191,7 +191,7 @@ func TestForUpdateNeverCached(t *testing.T) {
 	}
 }
 
-// 指纹失败：降级直通，不把错误当结果。
+// 指纹失败：降级直通，不把错误当结果；error 降级与空串降级可辨（#251）。
 func TestFingerprintFailurePassesThrough(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	repo.byID[1] = &user{ID: 1, Name: "a"}
@@ -207,7 +207,13 @@ func TestFingerprintFailurePassesThrough(t *testing.T) {
 	qc.WithFingerprint(func(spec crud.QuerySpec) (string, error) {
 		return "", errors.New("fingerprint unavailable")
 	})
-	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
+	var gotOps []string
+	var gotErrs []error
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc),
+		cached.WithOnError[user, int64](func(ctx context.Context, op string, keys []string, err error) {
+			gotOps = append(gotOps, op)
+			gotErrs = append(gotErrs, err)
+		}))
 
 	for i := 0; i < 2; i++ {
 		if _, _, err := cr.List(ctx, crud.NewQuery()); err != nil {
@@ -216,6 +222,58 @@ func TestFingerprintFailurePassesThrough(t *testing.T) {
 	}
 	if n := repo.count("List"); n != 2 {
 		t.Fatalf("repo.List calls = %d, want 2（指纹失败必须直通）", n)
+	}
+	if len(gotOps) != 2 || gotOps[0] != "fingerprint" {
+		t.Fatalf("指纹 error 降级必须上报 op=fingerprint，got %v", gotOps)
+	}
+	if errors.Is(gotErrs[0], cached.ErrFingerprintDegraded) {
+		t.Fatal("error 降级不应被标成空串哨兵（两者必须可辨）")
+	}
+}
+
+// 指纹函数返回空串（合法的「本次别缓存」形态）必须与 error 降级在
+// 观测面上等价（#251）：onError 收到 op="fingerprint" 且 err 命中
+// ErrFingerprintDegraded，而不是因 err==nil 静默零上报。
+func TestFingerprintEmptyStringReportsDegraded(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	ctx := context.Background()
+
+	entityQ := dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})
+	page := dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})
+	versions := dcache.NewLocalCache(dcache.LocalConfig[string]{TTL: time.Hour})
+	qc, err := cached.NewQueryCache[user](entityQ, page, versions, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("NewQueryCache: %v", err)
+	}
+	qc.WithFingerprint(func(spec crud.QuerySpec) (string, error) {
+		return "", nil // 契约允许的「本次别缓存」，不是 error
+	})
+	var gotOps []string
+	var gotErrs []error
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc),
+		cached.WithOnError[user, int64](func(ctx context.Context, op string, keys []string, err error) {
+			gotOps = append(gotOps, op)
+			gotErrs = append(gotErrs, err)
+		}))
+
+	for i := 0; i < 2; i++ {
+		if _, err := cr.GetOne(ctx, crud.NewQuery()); !errors.Is(err, crud.ErrNotFound) {
+			t.Fatalf("GetOne #%d err = %v, want ErrNotFound", i+1, err)
+		}
+	}
+	if n := repo.count("GetOne"); n != 2 {
+		t.Fatalf("repo.GetOne calls = %d, want 2（空串指纹必须直通）", n)
+	}
+	if len(gotOps) != 2 {
+		t.Fatalf("空串降级必须每次上报（got %d 次），观测面不得静默", len(gotOps))
+	}
+	for i := range gotOps {
+		if gotOps[i] != "fingerprint" {
+			t.Fatalf("第 %d 次上报 op = %q, want fingerprint", i+1, gotOps[i])
+		}
+		if !errors.Is(gotErrs[i], cached.ErrFingerprintDegraded) {
+			t.Fatalf("第 %d 次上报 err = %v, want ErrFingerprintDegraded", i+1, gotErrs[i])
+		}
 	}
 }
 

@@ -267,8 +267,14 @@ func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope strin
 		return "", false
 	}
 	fp, err := r.cfg.qc.fingerprint(spec)
-	if err != nil || fp == "" {
+	if err != nil {
 		r.report(ctx, "fingerprint", nil, err)
+		return "", false
+	}
+	if fp == "" {
+		// 空串是契约允许的降级形态而非 error：必须以可识别哨兵上报，
+		// 否则 onError 因 err==nil 静默，降级在观测面上完全不可见（#251）。
+		r.report(ctx, "fingerprint", nil, ErrFingerprintDegraded)
 		return "", false
 	}
 	verKey := r.verKey(scope)
