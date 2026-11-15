@@ -3,6 +3,7 @@ package cached_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -235,7 +236,8 @@ func TestGetOneForUpdateNeverCached(t *testing.T) {
 	}
 }
 
-// 版本键读失败：降级以空版本建键，列表缓存仍可用且不报错。
+// 版本键读失败：无法确认当前令牌 ⇒ 查询缓存降级直通，绝不以空版本
+// 建键回落到上一轮降级窗口的历史条目（#250）；失败经 onError 上报。
 func TestVersionReadFailureFallsBack(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	repo.byID[1] = &user{ID: 1, Name: "a"}
@@ -261,11 +263,65 @@ func TestVersionReadFailureFallsBack(t *testing.T) {
 			t.Fatalf("List #%d: %v", i+1, err)
 		}
 	}
-	if n := repo.count("List"); n != 1 {
-		t.Fatalf("repo.List calls = %d, want 1（空版本键必须仍可命中缓存）", n)
+	if n := repo.count("List"); n != 2 {
+		t.Fatalf("repo.List calls = %d, want 2（版本读失败必须降级直通，不得用空版本键命中历史条目）", n)
 	}
 	if reported == 0 {
 		t.Fatal("版本读失败必须经 onError 上报")
+	}
+}
+
+// 版本键过期不得回落空版本键（#250）：空版本键上的历史条目不受任何
+// bump 约束，旧实现会在 versions 过期后命中写前旧值。修复后版本缺失
+// 签发新令牌，旧令牌条目自然作废，写后读保持新值。
+func TestVersionKeyExpiryNoStaleHit(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	repo.byID[1] = &user{ID: 1, Name: "v0"}
+	ctx := context.Background()
+
+	// 假时钟只注入 versions：手动推进即确定性驱动版本键过期，无 sleep。
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	entityQ := dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})
+	page := dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})
+	versions := dcache.NewLocalCache(dcache.LocalConfig[string]{
+		TTL:               time.Hour,
+		NoBackgroundSweep: true,
+		Now:               func() time.Time { return time.Unix(0, clock.Load()) },
+	})
+	qc, err := cached.NewQueryCache[user](entityQ, page, versions, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("NewQueryCache: %v", err)
+	}
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
+
+	q := crud.NewQuery().Where("id", "=", 1)
+	// t0：版本键缺失，首次读回填 v0
+	got, err := cr.GetOne(ctx, q)
+	if err != nil || got == nil || got.Name != "v0" {
+		t.Fatalf("首次 GetOne = %v, %v; want v0", got, err)
+	}
+
+	// t1：写路径 bump 版本，读取得 v1
+	if _, werr := cr.Update(ctx, &user{ID: 1, Name: "v1"}); werr != nil {
+		t.Fatalf("Update: %v", werr)
+	}
+	got, err = cr.GetOne(ctx, q)
+	if err != nil || got == nil || got.Name != "v1" {
+		t.Fatalf("写后 GetOne = %v, %v; want v1", got, err)
+	}
+
+	// t2：versions 过期——旧实现回落空版本键命中 t0 的 v0
+	clock.Add(int64(2 * time.Hour))
+	got, err = cr.GetOne(ctx, q)
+	if err != nil || got == nil {
+		t.Fatalf("版本过期后 GetOne = %v, %v", got, err)
+	}
+	if got.Name != "v1" {
+		t.Fatalf("版本键过期后读到 %q, want v1（空版本键命中了写前旧值，#250）", got.Name)
+	}
+	if n := repo.count("GetOne"); n != 3 {
+		t.Fatalf("repo.GetOne calls = %d, want 3（版本过期后必须重建，不得命中空版本键条目）", n)
 	}
 }
 

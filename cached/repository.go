@@ -255,9 +255,9 @@ func (r *CachedRepository[T, ID]) Count(ctx context.Context, q *crud.Query) (int
 }
 
 // queryCacheKey 计算查询缓存键：ForUpdate 永不缓存；指纹失败降级直通；
-// 版本 miss/读失败以空版本兜底（旧版本键查不到即重建；注意若版本后端
-// 持续故障而条目后端正常，空版本键可能命中上一轮降级窗口的旧条目——
-// 仍受条目 TTL 约束）。
+// 版本键缺失/过期时签发新令牌（旧令牌下的条目自然作废），版本读失败
+// 降级直通——**空版本键绝不参与命中**（#250）：空版本键上的历史条目
+// 不在任何 bump 的失效范围内，命中即写后读旧值。
 func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope string, q *crud.Query, kind string) (string, bool) {
 	var spec crud.QuerySpec
 	if q != nil {
@@ -274,11 +274,27 @@ func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope strin
 	verKey := r.verKey(scope)
 	ver, err := r.cfg.qc.versions.Get(ctx, verKey)
 	if err != nil {
+		// 版本读失败时无法确认当前令牌：用空版本建键会回落到历史条目
+		// （空版本键不受任何 bump 约束），必须降级直通（#250）。
 		r.report(ctx, "read", []string{verKey}, err)
+		return "", false
 	}
 	current := ""
 	if ver != nil {
 		current = *ver
+	}
+	if current == "" {
+		// 版本键缺失/过期/被容量淘汰：签发新令牌替代空版本（#250）。
+		// 旧令牌下的条目自然脱离当前键空间（受各自 TTL 回收），版本
+		// 过期只导致一次重建，不致脏读——versions TTL 无需强制 ≥ 条目
+		// TTL。先 Set 后回源：若与写路径 bump 竞争，覆盖发生后本次回源
+		// 必然读到提交后的数据，不会把写前旧值写进当前令牌。
+		token := newVersionToken()
+		if err := r.cfg.qc.versions.Set(ctx, verKey, &token); err != nil {
+			r.report(ctx, "read", []string{verKey}, err)
+			return "", false
+		}
+		current = token
 	}
 	return r.queryKey(scope, kind, current, fp), true
 }
