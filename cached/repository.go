@@ -2,15 +2,14 @@ package cached
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/oekit/gormx/crud"
 	"github.com/oekit/pkg/cache"
-	"sync"
-	"sync/atomic"
+	"github.com/oekit/pkg/errors"
 )
 
 // 本文件是装饰器本体与读路径职责（#179 拆分）：CachedRepository 类型、
@@ -104,11 +103,11 @@ func (r *CachedRepository[T, ID]) source(ctx context.Context, key string) (*T, e
 	}
 	rest, ok := strings.CutPrefix(key, r.idKeyPrefix(scope))
 	if !ok {
-		return nil, fmt.Errorf("cached: key %q 不属于类型 %q 的 ID 键空间", key, r.cfg.typ)
+		return nil, errors.Newf("cached: key %q 不属于类型 %q 的 ID 键空间", key, r.cfg.typ)
 	}
 	id, err := r.decodeID(rest)
 	if err != nil {
-		return nil, fmt.Errorf("cached: key %q 的 ID 段非法: %w", key, err)
+		return nil, errors.Wrapf(err, "cached: key %q 的 ID 段非法", key)
 	}
 	// 布隆前置门（可选件）：判定"绝对不存在"直接走 null marker，仓储零调用
 	if r.bloomGate(ctx, id) {

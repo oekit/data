@@ -4,12 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/oekit/gormx/crud"
 	"github.com/oekit/pkg/cache"
+	"github.com/oekit/pkg/errors"
 )
 
 // QueryPage 是 List 查询缓存的结果形态（对应仓储 List 的
@@ -117,7 +117,7 @@ func (qc *QueryCache[T]) WithFingerprint(fn FingerprintFunc) *QueryCache[T] {
 func DefaultFingerprint[T any](spec crud.QuerySpec) (string, error) {
 	blob, err := json.Marshal(spec)
 	if err != nil {
-		return "", fmt.Errorf("cached: 查询指纹序列化失败: %w", err)
+		return "", errors.Wrapf(err, "cached: 查询指纹序列化失败")
 	}
 	if err := argsDistinguishable(spec, blob); err != nil {
 		return "", err
@@ -141,7 +141,7 @@ func argsDistinguishable(spec crud.QuerySpec, blob []byte) error {
 		Preloads []argsBlob `json:"Preloads"`
 	}
 	if err := json.Unmarshal(blob, &root); err != nil {
-		return fmt.Errorf("cached: 查询指纹自检失败（spec blob 不可解析）: %w", err)
+		return errors.Wrapf(err, "cached: 查询指纹自检失败（spec blob 不可解析）")
 	}
 	if len(root.Conds) != len(spec.Conds) || len(root.OrConds) != len(spec.OrConds) ||
 		len(root.Preloads) != len(spec.Preloads) {
@@ -175,15 +175,15 @@ type argsBlob struct {
 // （布局漂移防护），每个参数再递归判定区分度。
 func checkArgBlobs(c argsBlob, args []any, path string) error {
 	if len(c.Args) != len(args) {
-		return fmt.Errorf("cached: 查询指纹自检与 spec 布局不一致（%s.Args 条数不匹配），拒绝指纹", path)
+		return errors.Newf("cached: 查询指纹自检与 spec 布局不一致（%s.Args 条数不匹配），拒绝指纹", path)
 	}
 	for j, raw := range c.Args {
 		var v any
 		if err := json.Unmarshal(raw, &v); err != nil {
-			return fmt.Errorf("cached: 查询参数 %s.Args[%d] 编码不可解析，拒绝指纹: %w", path, j, err)
+			return errors.Wrapf(err, "cached: 查询参数 %s.Args[%d] 编码不可解析，拒绝指纹", path, j)
 		}
 		if !distinguishable(v) {
-			return fmt.Errorf("cached: 查询参数 %s.Args[%d] 编码含无区分度子树（{} / null），不同取值会同指纹，拒绝指纹", path, j)
+			return errors.Newf("cached: 查询参数 %s.Args[%d] 编码含无区分度子树（{} / null），不同取值会同指纹，拒绝指纹", path, j)
 		}
 	}
 	return nil

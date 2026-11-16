@@ -3,10 +3,10 @@ package cached
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/oekit/gormx/crud"
 	"github.com/oekit/pkg/cache"
+	pkgerrors "github.com/oekit/pkg/errors"
 )
 
 // GetByIDs 批量点读：后端具备 MGet 批量能力（pkg/cache.BatchGetter，
@@ -81,7 +81,7 @@ func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[I
 			if errors.Is(err, crud.ErrNotFound) {
 				continue
 			}
-			errs = append(errs, fmt.Errorf("cached: id %v: %w", id, err))
+			errs = append(errs, pkgerrors.Wrapf(err, "cached: id %v", id))
 			continue
 		}
 		out[id] = v

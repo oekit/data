@@ -2,10 +2,11 @@ package cached
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
+
+	"github.com/oekit/pkg/errors"
 )
 
 // 本文件是键空间与 ID 编解码职责（#179 拆分）：作用域解析、键构造、
@@ -22,7 +23,7 @@ func (r *CachedRepository[T, ID]) scope(ctx context.Context) (string, error) {
 	}
 	s, err := r.cfg.scopeKey(ctx)
 	if err != nil {
-		return "", fmt.Errorf("cached: 解析作用域键失败: %w", err)
+		return "", errors.Wrapf(err, "cached: 解析作用域键失败")
 	}
 	if s == "" {
 		return "", errors.New("cached: 作用域键为空——作用域隔离已启用但未解析出作用域（拒绝回落共享键）")
@@ -77,7 +78,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 	t := reflect.TypeOf(zero)
 	if t == nil {
 		return func(string) (ID, error) {
-			return zero, fmt.Errorf("cached: ID 为接口类型，缺省解码不可用，请用 WithIDCodec 注入编解码")
+			return zero, errors.New("cached: ID 为接口类型，缺省解码不可用，请用 WithIDCodec 注入编解码")
 		}
 	}
 	// 精确内建类型快路径：strconv 解析 + any 断言（动态类型精确一致，
@@ -89,7 +90,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseInt(s, 10, strconv.IntSize)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(int(v)).(ID), nil
 		}
@@ -97,7 +98,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseInt(s, 10, 8)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(int8(v)).(ID), nil
 		}
@@ -105,7 +106,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseInt(s, 10, 16)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(int16(v)).(ID), nil
 		}
@@ -113,7 +114,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseInt(s, 10, 32)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(int32(v)).(ID), nil
 		}
@@ -121,7 +122,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseInt(s, 10, 64)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(v).(ID), nil
 		}
@@ -129,7 +130,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseUint(s, 10, strconv.IntSize)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(uint(v)).(ID), nil
 		}
@@ -137,7 +138,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseUint(s, 10, 8)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(uint8(v)).(ID), nil
 		}
@@ -145,7 +146,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseUint(s, 10, 16)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(uint16(v)).(ID), nil
 		}
@@ -153,7 +154,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseUint(s, 10, 32)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(uint32(v)).(ID), nil
 		}
@@ -161,7 +162,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseUint(s, 10, 64)
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			return any(v).(ID), nil
 		}
@@ -175,7 +176,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseInt(s, 10, t.Bits())
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			out := reflect.New(t).Elem()
 			out.SetInt(v)
@@ -185,7 +186,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		return func(s string) (ID, error) {
 			v, err := strconv.ParseUint(s, 10, t.Bits())
 			if err != nil {
-				return zero, fmt.Errorf("cached: 键段 %q 解析为 %s 失败: %w", s, t, err)
+				return zero, errors.Wrapf(err, "cached: 键段 %q 解析为 %s 失败", s, t)
 			}
 			out := reflect.New(t).Elem()
 			out.SetUint(v)
@@ -193,7 +194,7 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 		}
 	default:
 		return func(string) (ID, error) {
-			return zero, fmt.Errorf("cached: ID 类型 %s 不支持缺省键解码，请用 WithIDCodec 注入编解码", t)
+			return zero, errors.Newf("cached: ID 类型 %s 不支持缺省键解码，请用 WithIDCodec 注入编解码", t)
 		}
 	}
 }
