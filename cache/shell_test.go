@@ -2,14 +2,13 @@ package cache_test
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/oekit/data/cache"
 	"github.com/oekit/data/internal/testsame"
 	pkgcache "github.com/oekit/pkg/cache"
+	"github.com/oekit/pkg/errors"
 )
 
 // TestTypeIdentity 门面 alias 与源包类型完全同一（双向赋值，消费方视角）。
@@ -77,7 +76,7 @@ func TestErrorSentinelIdentity(t *testing.T) {
 	if !errors.Is(cache.ErrNoStale, pkgcache.ErrNoStale) {
 		t.Fatal("cache.ErrNoStale 与源包不是同一哨兵")
 	}
-	wrapped := fmt.Errorf("upstream denied: %w", cache.ErrNoStale)
+	wrapped := errors.Wrapf(cache.ErrNoStale, "upstream denied")
 	if !errors.Is(wrapped, pkgcache.ErrNoStale) {
 		t.Fatal("wrap 后 errors.Is 不命中源包哨兵")
 	}
