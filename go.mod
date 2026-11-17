@@ -9,8 +9,8 @@ require (
 	github.com/oekit/gormx v0.13.0
 	github.com/oekit/logx v0.12.0
 	github.com/oekit/pkg v0.53.0
-	github.com/oekit/redisx v0.16.3
-	github.com/oekit/timertask v0.5.6
+	github.com/oekit/redisx v0.16.4
+	github.com/oekit/timertask v0.5.7
 	github.com/redis/go-redis/v9 v9.23.0
 	gorm.io/gorm v1.31.2
 )
