@@ -1,5 +1,9 @@
 
 
+## [v0.22.3] — 2026-11-18
+
+- cached 版本令牌迁 stringx.RandomTokenOrFallback(pkg v0.53.0 原语)
+
 ## [v0.22.2] — 2026-11-16
 
 - refactor: fmt.Errorf → oekit/pkg/errors 三形态对位替换（#520 替换波）+ 依赖地板抬至最新已发布
