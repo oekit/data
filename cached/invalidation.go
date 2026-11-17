@@ -2,13 +2,12 @@ package cached
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"strconv"
 	"time"
 
 	"github.com/oekit/gormx/crud"
+	"github.com/oekit/pkg/stringx"
 )
 
 // 本文件是写路径与写后失效职责（#179 拆分）：先写库，成功后失效——
@@ -152,11 +151,18 @@ func (r *CachedRepository[T, ID]) report(ctx context.Context, op string, keys []
 
 // newVersionToken 生成版本令牌：随机 16 字节 hex。不用自增——
 // 并发写下读-改-写会丢 bump，随机令牌无条件覆盖即天然"后写者生效"。
+// 随机与 hex 编码委托 pkg/stringx 单源（#528 消费方迁移，编码与原
+// encoding/hex 实现逐字节一致）；crypto/rand 失败几乎只可能是系统级
+// 故障，退化为纳秒时间戳（fallback 显式声明，语义与原实现一致）。
 func newVersionToken() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// crypto/rand 失败几乎只可能是系统级故障，退化为纳秒时间戳
+	token, err := stringx.RandomTokenOrFallback(16, stringx.TokenHex, func() string {
 		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	})
+	if err != nil {
+		// err 仅为参数/用法错误（nBytes<=0、enc 非法、fallback 为 nil）——
+		// 常量实参下不可达的确定性编程错误，fail-fast 显式炸出（禁 `_` 吞
+		// error；同 NewRepository 装配期 panic 口径）。
+		panic("cached: newVersionToken 参数错误（不可达）: " + err.Error())
 	}
-	return hex.EncodeToString(b[:])
+	return token
 }
