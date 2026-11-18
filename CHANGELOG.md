@@ -1,5 +1,9 @@
 
 
+## [v0.22.5] — 2026-11-19
+
+- - fix: 门面壳跟版 gormx PrimaryKeyField/PrimaryKeyColumn 与 timertask StartState/DrainWorkers 四个导出符号——源仓已发版而壳未跟（门面跟版税漏项，audit 漂移红卡解锁），补 var 转发/type alias（#282）
+
 ## [v0.22.4] — 2026-11-19
 
 - - test: 门面泛型构造器补「构造+基本调用」冒烟测试——NewRedisCache/NewBaseService/Paginate 三处此前零行为覆盖（构造器本体在 generic.go 早已存在，#276 审计勘误留档）（#276）
