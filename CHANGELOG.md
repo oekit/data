@@ -1,5 +1,11 @@
 
 
+## [v0.22.4] — 2026-11-19
+
+- - test: 门面泛型构造器补「构造+基本调用」冒烟测试——NewRedisCache/NewBaseService/Paginate 三处此前零行为覆盖（构造器本体在 generic.go 早已存在，#276 审计勘误留档）（#276）
+
+关联问题单：data#276。
+
 ## [v0.22.3] — 2026-11-18
 
 - cached 版本令牌迁 stringx.RandomTokenOrFallback(pkg v0.53.0 原语)
