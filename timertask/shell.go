@@ -40,6 +40,7 @@ const RetryExhausted = src.RetryExhausted
 type Task = src.Task
 type TimerTask = src.TimerTask
 type TimerTaskOption = src.TimerTaskOption
+type StartState = src.StartState
 
 // ErrBackendAlreadyStarted 后端重复启动（Start 已在运行）。
 var ErrBackendAlreadyStarted = src.ErrBackendAlreadyStarted
@@ -48,6 +49,7 @@ var ErrBackendAlreadyStarted = src.ErrBackendAlreadyStarted
 var ErrEmptyTaskID = src.ErrEmptyTaskID
 
 // ErrBackendStopped 后端已停机（Start 已返回），实例进入终态。
+var DrainWorkers = src.DrainWorkers
 var ErrBackendStopped = src.ErrBackendStopped
 
 var NewLocalBackend = src.NewLocalBackend
