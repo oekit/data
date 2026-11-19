@@ -35,6 +35,7 @@ var IsUniqueViolation = src.IsUniqueViolation
 var MapQueryError = src.MapQueryError
 var Open = src.Open
 var OpenMySQL = src.OpenMySQL
+var WithSkipProbe = src.WithSkipProbe
 var RunWithAdvisoryLock = src.RunWithAdvisoryLock
 var PaginateScope = src.PaginateScope
 var PrimaryKeyColumn = src.PrimaryKeyColumn
