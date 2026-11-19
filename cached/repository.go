@@ -65,6 +65,18 @@ func NewRepository[T any, ID comparable](repo crud.Repository[T, ID], newCache C
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// 构造期键段立约（#285）：prefix/typ 是写死进每一个键的静态段，含
+	// ':' 即与键分层分隔符不可区分（前缀 "a:b"+typ "c" 与前缀 "a"+typ
+	// "b:c" 拼出同一 typePrefix，跨实体串键）——装配期即 panic（同本
+	// 构造器既有 fail-fast 口径；同族先例 etcdx registry#110/distlock#138、
+	// pkg/cache#188）。动态段（scope / ID 编码产物）在运行期校验，见
+	// scope() 与 encodeIDSegment。
+	if err := checkKeySegment("前缀", cfg.prefix); err != nil {
+		panic("cached: NewRepository 装配期拒绝: " + err.Error())
+	}
+	if err := checkKeySegment("类型名", cfg.typ); err != nil {
+		panic("cached: NewRepository 装配期拒绝: " + err.Error())
+	}
 	// 构造期单源化（#181）：ID 访问器与键段解码器各解析一次，写路径与
 	// 缓存 miss 热路径不再逐次反射。
 	cfg.idAcc = resolveIDAccessor[T, ID](cfg.idFn)
@@ -150,7 +162,14 @@ func (r *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (*T, error
 	if !ok {
 		return r.cfg.repo.GetByID(ctx, id)
 	}
-	key := r.idKey(scope, id)
+	key, err := r.idKey(scope, id)
+	if err != nil {
+		// ID 键段含 ':'（#285）：无法构造无歧义键 ⇒ 降级直查仓储（仓储
+		// 是权威源，直查不会串数据），经 onError 上报 op="encode"。与
+		// 作用域解析失败同口径：绝不带着歧义键回缓存。
+		r.report(ctx, "encode", nil, err)
+		return r.cfg.repo.GetByID(ctx, id)
+	}
 	v, err := r.entity.GetOrLoad(ctx, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)

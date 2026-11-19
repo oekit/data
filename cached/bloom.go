@@ -55,6 +55,9 @@ func WithBloomFilter[T any, ID comparable](bf BloomChecker) CachedOption[T, ID] 
 //
 // 真正需要按作用域隔离的是**缓存键**（null marker 落在其中），那由
 // WithScopeKey 保证。
+//
+// 元素含 ':' 无害（#285）：bloom 元素是单段等值比较、不参与键拼接，
+// #285 的段校验只约束进缓存键的路径（见 encodeIDSegment）。
 func (r *CachedRepository[T, ID]) bloomItem(id ID) string {
 	return r.encodeID(id)
 }
