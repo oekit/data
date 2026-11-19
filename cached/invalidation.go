@@ -126,10 +126,20 @@ func (r *CachedRepository[T, ID]) invalidate(ctx context.Context, scope string, 
 		keys := make([]string, 0, len(ids))
 		prefix := r.idKeyPrefix(scope)
 		for _, id := range ids {
-			keys = append(keys, prefix+r.encodeID(id))
+			seg, err := r.encodeIDSegment(id)
+			if err != nil {
+				// ID 键段含 ':'（#285）：无法定位该删的键 ⇒ 跳过该键并上报
+				// op="invalidate"，TTL 兜底（与失效失败同口径，写已提交，
+				// 不因失效问题报错）。
+				r.report(ctx, "invalidate", nil, err)
+				continue
+			}
+			keys = append(keys, prefix+seg)
 		}
-		if err := r.entity.DelBatch(ctx, keys...); err != nil {
-			r.report(ctx, "invalidate", keys, err)
+		if len(keys) > 0 {
+			if err := r.entity.DelBatch(ctx, keys...); err != nil {
+				r.report(ctx, "invalidate", keys, err)
+			}
 		}
 	}
 	if r.cfg.qc != nil {

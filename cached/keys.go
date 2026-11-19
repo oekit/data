@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/oekit/pkg/errors"
 )
@@ -12,11 +13,28 @@ import (
 // 本文件是键空间与 ID 编解码职责（#179 拆分）：作用域解析、键构造、
 // ID 键段的编解码及其缺省解析器。
 
+// checkKeySegment 单键段边界校验（#285）：cached 键空间按 ':' 分层
+// （typePrefix / scopeSegment / idKey / queryKey 均裸 ':' 拼接），段内
+// 含 ':' 即与分隔符不可区分——scope "a"+ID "b:c" 与 scope "a:id:b"+ID
+// "c" 拼出同一个 idKey，语义不同的两条目共享同一缓存条目（跨实体串
+// 缓存键，A 的结果被当成 B 的返回；pkg/cache.Key 同款事故形态 #188）。
+// 与 etcdx/internal/keyseg 的键路径段立约同族（registry#110 /
+// distlock#138：路径段含分隔符时 fail-fast，把键层级边界变成不变量）。
+// kind 仅用于错误文案定位（如 "作用域键" / "ID 键段" / "前缀" / "类型名"）。
+func checkKeySegment(kind, seg string) error {
+	if strings.Contains(seg, ":") {
+		return errors.Newf("cached: %s %q 含 ':'——键段不得含分隔符 ':'（跨实体串键，#285；同族先例 etcdx registry#110/distlock#138、pkg/cache#188）", kind, seg)
+	}
+	return nil
+}
+
 // scope 解析当前调用的作用域键。
 //
 // 未启用作用域隔离时返回空串（键形态与历史一致）。启用后：
 //   - 解析出错 ⇒ 返回错误（**不**回落共享键）；
-//   - 解析出空串 ⇒ 返回错误（空串等于没开隔离）。
+//   - 解析出空串 ⇒ 返回错误（空串等于没开隔离）；
+//   - 解析出含 ':' 的串 ⇒ 返回错误（#285：':' 是键分层分隔符，含 ':'
+//     的作用域与相邻键段不可区分，绝不以歧义键触碰缓存）。
 func (r *CachedRepository[T, ID]) scope(ctx context.Context) (string, error) {
 	if r.cfg.scopeKey == nil {
 		return "", nil
@@ -28,10 +46,14 @@ func (r *CachedRepository[T, ID]) scope(ctx context.Context) (string, error) {
 	if s == "" {
 		return "", errors.New("cached: 作用域键为空——作用域隔离已启用但未解析出作用域（拒绝回落共享键）")
 	}
+	if err := checkKeySegment("作用域键", s); err != nil {
+		return "", err
+	}
 	return s, nil
 }
 
-// scopeSegment 作用域段（无作用域时为空串）。
+// scopeSegment 作用域段（无作用域时为空串）。scope 内容已由 r.scope()
+// 做过段边界校验（#285），此处只做拼接。
 func scopeSegment(scope string) string {
 	if scope == "" {
 		return ""
@@ -50,11 +72,30 @@ func (r *CachedRepository[T, ID]) idKeyPrefix(scope string) string {
 
 // encodeID ID → 键段字符串。缺省 fmt %v（int64 十进制、string 直通，
 // 与 int64 时代键格式兼容）。
+//
+// ⚠️ 产物是单个键段，不得含 ':'（#285）：缺省编码对整型恒为十进制数字
+// （天然安全）；string 直通与 WithIDCodec 自定义编码都可能产出 ':'。
+// 进缓存键的路径统一走 encodeIDSegment（含段校验）；bloomItem 是单段
+// 等值比较、不参与键拼接，可直接用本函数。
 func (r *CachedRepository[T, ID]) encodeID(id ID) string {
 	if r.cfg.encode != nil {
 		return r.cfg.encode(id)
 	}
 	return fmt.Sprintf("%v", id)
+}
+
+// encodeIDSegment ID → 键段字符串并做段边界校验（#285）：encodeID 产物
+// 含 ':' 即与键分隔符不可区分——文本主键 "b:c"（scope "a"）与 ID "c"
+// （scope "a:id:b"）拼出同一个 idKey，跨实体串缓存键。逐键校验的代价是
+// 一次 strings.Contains（短键段为纳秒级，相对缓存 I/O 可忽略，见
+// idaccessor 基准）；含 ':' 时返回错误，调用方降级直查/跳过失效并上报，
+// 绝不以歧义键触碰缓存。
+func (r *CachedRepository[T, ID]) encodeIDSegment(id ID) (string, error) {
+	seg := r.encodeID(id)
+	if err := checkKeySegment("ID 键段", seg); err != nil {
+		return "", err
+	}
+	return seg, nil
 }
 
 // decodeID 键段字符串 → ID。解码器在构造期解析一次（见 resolveIDDecoder），
@@ -199,14 +240,27 @@ func resolveIDDecoder[T any, ID comparable](decode func(string) (ID, error)) fun
 	}
 }
 
-func (r *CachedRepository[T, ID]) idKey(scope string, id ID) string {
-	return r.idKeyPrefix(scope) + r.encodeID(id)
+// idKey 实体点读键（"前缀:类型:scope:<作用域>:id:<键段>"）。ID 键段经
+// encodeIDSegment 校验（#285），scope 已由调用方经 r.scope() 校验，
+// 键内各段与分隔符可辨 ⇒ 键空间无歧义。
+func (r *CachedRepository[T, ID]) idKey(scope string, id ID) (string, error) {
+	seg, err := r.encodeIDSegment(id)
+	if err != nil {
+		return "", err
+	}
+	return r.idKeyPrefix(scope) + seg, nil
 }
 
+// verKey 查询缓存版本键。ver 段由 newVersionToken 产出（随机 hex /
+// 纳秒时间戳 base36，均不含 ':'），scope 已校验 ⇒ 无需再查（#285）。
 func (r *CachedRepository[T, ID]) verKey(scope string) string {
 	return r.typePrefix() + scopeSegment(scope) + "ver"
 }
 
+// queryKey 查询缓存键（"前缀:类型:scope:<作用域>:q:<kind>:<ver>:<fp>"）。
+// kind 限定内部常量（"one"/"list"）、ver 同 verKey、fp 在键的最末段
+// （即便自定义指纹产出 ':'，后面再无其他段可被挪位，键空间仍无歧义）
+// ——三者都不是外部输入，scope 已校验 ⇒ 无需段校验（#285）。
 func (r *CachedRepository[T, ID]) queryKey(scope, kind, ver, fp string) string {
 	return r.typePrefix() + scopeSegment(scope) + "q:" + kind + ":" + ver + ":" + fp
 }
