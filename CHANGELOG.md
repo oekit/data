@@ -1,5 +1,9 @@
 
 
+## [v0.22.6] — 2026-11-20
+
+- - fix: 门面壳跟版 gormx WithSkipProbe（OpenMySQL 跳过构造期连通性验证选项）+ 地板升 gormx v0.13.2（#285）
+
 ## [v0.22.5] — 2026-11-19
 
 - - fix: 门面壳跟版 gormx PrimaryKeyField/PrimaryKeyColumn 与 timertask StartState/DrainWorkers 四个导出符号——源仓已发版而壳未跟（门面跟版税漏项，audit 漂移红卡解锁），补 var 转发/type alias（#282）
