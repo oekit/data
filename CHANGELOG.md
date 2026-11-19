@@ -1,5 +1,11 @@
 
 
+## [v0.23.0] — 2026-11-20
+
+- fix(cached): 层级键段边界校验——构造期 prefix/typ 含 : fail-fast、运行期 scope 含 : 降级直查、encodeID 产物逐键校验；pkg/cache.Key#188 与 etcdx keyseg 同族第三处治理，杜绝含 : 的租户/文本主键跨实体串缓存键（#285）
+fix(twolevel): 全部 11 个公开入口补 nil-ctx 兜底——pkg v0.55.1 cachetest 契约第 9 场景在地板 bump CI 暴露组合体 nil ctx 直捅 L2（#290）
+⚠ 行为面：此前含 : 的 scope/ID 若已在使用，升级后不再静默落歧义键（构造期 panic/运行期降级直查并上报），请检查既有键段合规性
+
 ## [v0.22.6] — 2026-11-20
 
 - - fix: 门面壳跟版 gormx WithSkipProbe（OpenMySQL 跳过构造期连通性验证选项）+ 地板升 gormx v0.13.2（#285）
