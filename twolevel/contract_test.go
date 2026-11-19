@@ -47,7 +47,8 @@ func newTwoLevelInt(t *testing.T, ttl time.Duration, source datacache.SourceFunc
 	return c
 }
 
-// TestTwoLevelCache_Contract 两级组合体跑完整契约（8 场景）：
+// TestTwoLevelCache_Contract 两级组合体跑完整契约（9 场景，含
+// nil_ctx_treated_as_background——nil ctx 按 Background 处理不 panic）：
 // 组合不得破坏 cache 门面接口的任何跨实现语义。
 func TestTwoLevelCache_Contract(t *testing.T) {
 	cachetest.Run(t, cachetest.Comparable[int](), newTwoLevelForContract)

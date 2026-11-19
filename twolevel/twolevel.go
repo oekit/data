@@ -8,11 +8,20 @@ import (
 
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/cache"
+	"github.com/oekit/pkg/contextx"
 )
 
 // TwoLevelCache 是两级缓存装饰器：L1 本地缓存 + L2 远端 CacheAside
 // （如 redisx/cache.RedisCache）读穿写透组合。实现 cache.CacheAside[T]，
 // 可作为 cached.NewRepository 的后端工厂产物，也可独立使用。
+//
+// 全部公开入口（Get/Set/SetWithTTL/Del/DelBatch/Exists/GetOrLoad/MGet/
+// Refresh/Start/Close）对 nil ctx 归一为 context.Background()
+// （pkg/contextx.OrBackground；cachetest 契约第 9 场景
+// nil_ctx_treated_as_background，pkg#554）：nil 接口值若原样透传给 L2
+// （go-redis 连接池在 pool.waitTurn 处 nil 解引用 panic）或 L1/Bus，堆栈
+// 离「传错了」的调用点很远。只做 nil 归一，不复活取消信号——已取消的
+// ctx 原样透传。
 //
 // 语义分层见包文档；Del 先远后本的理由、null marker 委托 L2 的机制、
 // SetWithTTL 双层传导的必要性均在类型与包文档中固化。
@@ -81,6 +90,7 @@ func NewTwoLevelCache[T any](
 // 注意：订阅错误本身不报错——go-redis 的订阅错误是异步的，Redis 不可达时
 // 循环会静默重连（Channel 自带重连）；可观测性靠 Bus 内部日志。
 func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
+	ctx = contextx.OrBackground(ctx)
 	if c.bus == nil {
 		return nil
 	}
@@ -105,6 +115,7 @@ func (c *TwoLevelCache[T]) Start(ctx context.Context) error {
 // 影响，#140）并透传 L1 的 Close(ctx) error（Once 幂等，重复调用安全；
 // L1 不实现 Close 时为 no-op）。
 func (c *TwoLevelCache[T]) Close(ctx context.Context) error {
+	ctx = contextx.OrBackground(ctx)
 	c.mu.Lock()
 	if c.busSub != nil {
 		c.busSub.release() // release 内部 sync.Once 幂等，重复 Close 安全
@@ -130,6 +141,7 @@ func (c *TwoLevelCache[T]) evictLocal(key string) {
 
 // Get 读穿获取：L1 命中直接返回；L2 命中后回填 L1 并返回。
 func (c *TwoLevelCache[T]) Get(ctx context.Context, key string) (*T, error) {
+	ctx = contextx.OrBackground(ctx)
 	v, err := c.local.Get(ctx, key)
 	if err != nil || v != nil {
 		return v, err
@@ -145,6 +157,7 @@ func (c *TwoLevelCache[T]) Get(ctx context.Context, key string) (*T, error) {
 
 // Set 写穿两级（各自使用实现的默认 TTL）。
 func (c *TwoLevelCache[T]) Set(ctx context.Context, key string, value *T) error {
+	ctx = contextx.OrBackground(ctx)
 	if err := c.remote.Set(ctx, key, value); err != nil {
 		return err
 	}
@@ -154,6 +167,7 @@ func (c *TwoLevelCache[T]) Set(ctx context.Context, key string, value *T) error 
 // SetWithTTL 写穿两级，显式 TTL 同时作用于 L1 与 L2（否则 L1 长驻会
 // 吞掉显式短 TTL 的过期语义）。
 func (c *TwoLevelCache[T]) SetWithTTL(ctx context.Context, key string, value *T, ttl time.Duration) error {
+	ctx = contextx.OrBackground(ctx)
 	if err := c.remote.SetWithTTL(ctx, key, value, ttl); err != nil {
 		return err
 	}
@@ -164,6 +178,7 @@ func (c *TwoLevelCache[T]) SetWithTTL(ctx context.Context, key string, value *T,
 // （best-effort，发布失败由远端实例 TTL 兜底；发布不随调用方 ctx 取消，
 // #252）。key 不存在时幂等不报错。
 func (c *TwoLevelCache[T]) Del(ctx context.Context, key string) error {
+	ctx = contextx.OrBackground(ctx)
 	// errors.Join 的参数按从左到右求值：远端先删（见包文档的顺序论证）
 	err := errors.Join(c.remote.Del(ctx, key), c.local.Del(ctx, key))
 	if c.bus != nil {
@@ -175,6 +190,7 @@ func (c *TwoLevelCache[T]) Del(ctx context.Context, key string) error {
 // DelBatch 双删两级（批量口径同 Del，广播同样不随调用方 ctx 取消）。
 // 空 keys 为幂等 no-op。
 func (c *TwoLevelCache[T]) DelBatch(ctx context.Context, keys ...string) error {
+	ctx = contextx.OrBackground(ctx)
 	err := errors.Join(c.remote.DelBatch(ctx, keys...), c.local.DelBatch(ctx, keys...))
 	if c.bus != nil {
 		c.bus.publish(ctx, keys)
@@ -184,6 +200,7 @@ func (c *TwoLevelCache[T]) DelBatch(ctx context.Context, keys ...string) error {
 
 // Exists 存在性检查：L1 命中为 true，否则查 L2（L2 的 null marker 计存在）。
 func (c *TwoLevelCache[T]) Exists(ctx context.Context, key string) (bool, error) {
+	ctx = contextx.OrBackground(ctx)
 	ok, err := c.local.Exists(ctx, key)
 	if err != nil || ok {
 		return ok, err
@@ -195,6 +212,7 @@ func (c *TwoLevelCache[T]) Exists(ctx context.Context, key string) (bool, error)
 // marker 防穿透，拿到真值后回填 L1。Source 返回 (nil, nil) 时透传
 // (nil, nil)，L1 不缓存 null。
 func (c *TwoLevelCache[T]) GetOrLoad(ctx context.Context, key string) (*T, error) {
+	ctx = contextx.OrBackground(ctx)
 	v, err := c.local.Get(ctx, key)
 	if err != nil || v != nil {
 		return v, err
@@ -218,6 +236,7 @@ func (c *TwoLevelCache[T]) GetOrLoad(ctx context.Context, key string) (*T, error
 // （GetEx）的 hit 标志判定；L1 连 HitGetter 也不具备时退化为值非空判定
 // （Get 的 (nil, nil) 双关无法区分 nil 真值与 miss，nil 只能当 miss 回源）。
 func (c *TwoLevelCache[T]) MGet(ctx context.Context, keys ...string) (map[string]*T, error) {
+	ctx = contextx.OrBackground(ctx)
 	out := make(map[string]*T, len(keys))
 	var misses []string
 
@@ -301,6 +320,7 @@ func (c *TwoLevelCache[T]) remoteMGet(ctx context.Context, keys []string) (map[s
 
 // Refresh 刷新：清 L1 后走 L2 的删除重载（null marker 一并清除），新值回填 L1。
 func (c *TwoLevelCache[T]) Refresh(ctx context.Context, key string) (*T, error) {
+	ctx = contextx.OrBackground(ctx)
 	if err := c.local.Del(ctx, key); err != nil {
 		twoLevelLog.Warn("two-level cache refresh local del failed", "key", key, logx.ErrKey, err)
 	}
