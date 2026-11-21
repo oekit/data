@@ -1,6 +1,6 @@
 # data
 
-> oekit 数据访问门面——复刻 ekit 单体库 data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 + cached 缓存读写编排 + twolevel 两级缓存，一个 import 前缀直达
+> oekit 数据访问门面——复刻 ekit 单体库 data/ 能力面：cache/rediscache/crud/gormrepo/datatypes/distlock/gormx/redisx/timertask/cachetest 十子包 + cached 缓存读写编排 + twolevel 两级缓存，一个 import 前缀直达
 
 > 🌐 项目主页：**https://oekit.github.io/** · 名称由来：**O**pen **E**asy **Kit**（开源 · 易用 · 工具集合）
 > 🤖 AI Agent：本仓规范与硬规则见 [AGENTS.md](AGENTS.md)；机器可读索引见 [llms.txt](https://oekit.github.io/llms.txt)（接口签名以源码为准）。
@@ -13,7 +13,7 @@ go get github.com/oekit/data@v0.23.0
 
 ## 这个仓库做什么
 
-`data` 是**数据访问门面**：复刻 ekit 单体库 `data/` 的能力面，八个 re-export
+`data` 是**数据访问门面**：复刻 ekit 单体库 `data/` 的能力面，十个 re-export
 子包的类型为泛型 type alias（与源包**完全同一类型**，双向赋值互通），实现
 分别住在各子仓——
 
@@ -22,6 +22,8 @@ go get github.com/oekit/data@v0.23.0
 | `cache` | 缓存接口（Cache/CacheAside/SourceFunc）+ LocalCache/SingleFlightCache + 键构造 + Checker；LocalCache 可选形状（pkg v0.16.0 起）：NoBackgroundSweep 无后台清扫 goroutine + CloneOnRead 读命中返回副本 + EvictPolicy 可选 LRU + GetEx 命中标志（新增能力以可选接口 Sweeper/HitGetter 外置，不破坏既有 Cache 接口）；Peek 非删除式读（pkg v0.23.0 起，可选接口 PeekGetter 外置——读到过期条目只算不命中、不删除它，stale-if-error 兜底需要那份过期真值留在表内，pkg#72） | [pkg](https://github.com/oekit/pkg) `cache/` |
 | `rediscache` | Redis 分布式缓存（CacheAside 的 Redis 后端） | [redisx](https://github.com/oekit/redisx) `cache/` |
 | `crud` | 框架无关 CRUD Service/仓储 | [gormx](https://github.com/oekit/gormx) `crud/` |
+| `gormrepo` | crud 仓储接口的 GORM 实现（`NewGormRepository` + 查询装饰器/scope fail-closed）+ `Repository`/`Query` 便捷别名 | [gormx](https://github.com/oekit/gormx) `gormrepo/` |
+| `datatypes` | 泛型 JSON 列类型（`JSONSlice[T]`/`JSONMap[K,V]`，Scan/Value + 方言 DDL） | [gormx](https://github.com/oekit/gormx) `datatypes/` |
 | `distlock` | 分布式锁（RedisLocker/WithLock/优雅降级/Renew 续期）+ Semaphore 信号量 + Lockout 防爆破锁 | [redisx](https://github.com/oekit/redisx) `distlock/` |
 | `gormx` | SQL/GORM 增强（Open/审计/OTel 插件/分页/单例仓储） | [gormx](https://github.com/oekit/gormx) |
 | `redisx` | Redis 客户端封装（String/Hash/Set/ZSet/Bloom/Batch/PubSub） | [redisx](https://github.com/oekit/redisx) |
@@ -275,7 +277,7 @@ repo := cached.NewRepository[User, int64](rawRepo, func(src cache.SourceFunc[Use
 
 ## 边界
 
-- **八个壳子包不含实现**：门面只做命名空间聚合（type alias + var 转发）；
+- **十个壳子包不含实现**：门面只做命名空间聚合（type alias + var 转发）；
   源仓新增导出符号时本仓壳需同步（跟版税由门面化决策承担，dependabot
   只升 pin 不补壳）；`cached` 与 `twolevel` 是仅有的两个例外（本仓实现，
   组合 crud 与 pkg/cache/redisx 的既有接口，不引入新底层依赖）

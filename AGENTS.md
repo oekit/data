@@ -4,7 +4,7 @@
 > 当前版本：`v0.23.0` · module：`github.com/oekit/data` · org：[oekit = Open Easy Kit](https://oekit.github.io)
 
 ## 本仓包含
-`./`、`cache/`、`cached/`、`cachetest/`、`crud/`、`distlock/`、`gormx/`、`internal/testsame/`、`rediscache/`、`redisx/`、`timertask/`、`twolevel/`
+`./`、`cache/`、`cached/`、`cachetest/`、`crud/`、`datatypes/`、`distlock/`、`gormrepo/`、`gormx/`、`internal/testsame/`、`rediscache/`、`redisx/`、`timertask/`、`twolevel/`
 
 ## 硬规则速览（全矩阵适用）
 

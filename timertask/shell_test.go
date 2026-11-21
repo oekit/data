@@ -4,11 +4,31 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oekit/data/internal/testsame"
 	"github.com/oekit/data/timertask"
 	timertasksrc "github.com/oekit/timertask"
 )
+
+// TestConstForwarding（#298）壳漏转发的两个源包常量：ErrKey（错误字段日志
+// 键）与 DefaultShutdownDrainGrace（停机宽限）——门面侧必须拿到同值，
+// 否则消费方要么回源仓 import、要么手写 "err"/10s 字面量，两端口径分叉。
+func TestConstForwarding(t *testing.T) {
+	if timertask.ErrKey != timertasksrc.ErrKey {
+		t.Fatalf("ErrKey = %q, 源包 = %q", timertask.ErrKey, timertasksrc.ErrKey)
+	}
+	if timertask.ErrKey != "err" {
+		t.Fatalf("ErrKey = %q, want \"err\"（与 logx.ErrKey 同值）", timertask.ErrKey)
+	}
+	if timertask.DefaultShutdownDrainGrace != timertasksrc.DefaultShutdownDrainGrace {
+		t.Fatalf("DefaultShutdownDrainGrace = %v, 源包 = %v",
+			timertask.DefaultShutdownDrainGrace, timertasksrc.DefaultShutdownDrainGrace)
+	}
+	if timertask.DefaultShutdownDrainGrace != 10*time.Second {
+		t.Fatalf("DefaultShutdownDrainGrace = %v, want 10s", timertask.DefaultShutdownDrainGrace)
+	}
+}
 
 // TestTypeIdentity Handler/Task 类型双向赋值。
 func TestTypeIdentity(t *testing.T) {
