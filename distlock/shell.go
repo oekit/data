@@ -36,6 +36,8 @@ var NewRedisLocker = src.NewRedisLocker
 var NewSemaphore = src.NewSemaphore
 var NewLockout = src.NewLockout
 var WithAutoRenew = src.WithAutoRenew
+var WithOnLockLost = src.WithOnLockLost
+var WithSemaphoreOnLockLost = src.WithSemaphoreOnLockLost
 var WithGracefulDegradation = src.WithGracefulDegradation
 
 // WithLogger 注入 per-instance 日志（redisx/distlock #120）；watchdog 告警只进该日志。
