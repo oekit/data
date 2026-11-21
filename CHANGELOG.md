@@ -1,5 +1,15 @@
 
 
+## [v0.24.0] — 2026-11-21
+
+- 第三轮设计/缺陷审计（2026-11-21）data 修复：
+
+- feat: 新增 data/gormrepo 与 data/datatypes 门面壳——「一个 import」可装配完整 CRUD 栈（NewGormRepository 泛型薄包装/PaginateList/WithQueryDecorator；JSONSlice/JSONMap 泛型别名），门面十壳（#298）
+- fix: data/timertask 壳补 ErrKey/DefaultShutdownDrainGrace 转发 + 修正 ErrBackendStopped godoc 错位（#298）
+- feat: cached 新增 WithBloomVerifyOnMiss——bloom 判不存在时回源校验一次并异步补录（默认关，防穿透语义不变），修正 bloom 账本进程内/重启丢失的 godoc（#299）
+
+关联问题单：data#298、data#299。
+
 ## [v0.23.0] — 2026-11-20
 
 - fix(cached): 层级键段边界校验——构造期 prefix/typ 含 : fail-fast、运行期 scope 含 : 降级直查、encodeID 产物逐键校验；pkg/cache.Key#188 与 etcdx keyseg 同族第三处治理，杜绝含 : 的租户/文本主键跨实体串缓存键（#285）
