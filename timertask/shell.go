@@ -49,8 +49,18 @@ var ErrBackendAlreadyStarted = src.ErrBackendAlreadyStarted
 var ErrEmptyTaskID = src.ErrEmptyTaskID
 
 // ErrBackendStopped 后端已停机（Start 已返回），实例进入终态。
-var DrainWorkers = src.DrainWorkers
 var ErrBackendStopped = src.ErrBackendStopped
+
+// DrainWorkers 在宽限期内等待 in-flight worker 到任务边界（停机收尾用）。
+var DrainWorkers = src.DrainWorkers
+
+// ErrKey 是错误字段的日志键（与 logx.ErrKey 同值 "err"）：timertask 根
+// 模块不引 logx，消费方记结构化日志时用本常量，避免手写 "err" 字面量。
+const ErrKey = src.ErrKey
+
+// DefaultShutdownDrainGrace 是停机等 in-flight worker 到任务边界的有界
+// 宽限（Local/Redis 两后端共用，10s）。
+const DefaultShutdownDrainGrace = src.DefaultShutdownDrainGrace
 
 var NewLocalBackend = src.NewLocalBackend
 var NormalizeRetry = src.NormalizeRetry
