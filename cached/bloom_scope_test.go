@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/oekit/data/cached"
 	"github.com/oekit/gormx/crud"
@@ -325,5 +326,52 @@ func TestBloomAddFailureDegradesGateAndSelfHeals(t *testing.T) {
 	bf.mu.Unlock()
 	if callsAfter == 0 {
 		t.Fatal("★ 恢复后点读应重新走 bloom 查询（前置门已恢复）")
+	}
+}
+
+// TestBloomVerifyOnMissFallsBackToRepo（data#299）：账本随进程重启丢失后，
+// bloom 里没有的旧行不得被永久判 ErrNotFound。开启 WithBloomVerifyOnMiss
+// 后，bloom 未命中改为回源确认一次：行存在 ⇒ 读到并异步补录，行不存在
+// ⇒ 照常 null marker。
+func TestBloomVerifyOnMissFallsBackToRepo(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	repo.byID[7] = &user{ID: 7, Name: "legacy"} // 存量行；bloom 空 = 账本已丢
+	bf := &fakeBloom{items: map[string]bool{}}
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory,
+		cached.WithID[user, int64](func(u *user) int64 { return u.ID }),
+		cached.WithBloomFilter[user, int64](bf),
+		cached.WithBloomVerifyOnMiss[user, int64](),
+	)
+
+	got, err := cr.GetByID(ctx, 7)
+	if err != nil || got == nil || got.Name != "legacy" {
+		t.Fatalf("★ 开启校验后漏录旧行必须可读: got=%v err=%v", got, err)
+	}
+	if n := repo.count("GetByID"); n != 1 {
+		t.Fatalf("校验期应回源一次, repo calls=%d", n)
+	}
+
+	// 异步补录：轮询直到 ID 进入 bloom（超时视为失败）。
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		bf.mu.Lock()
+		added := bf.items["7"]
+		bf.mu.Unlock()
+		if added {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("★ 校验命中后应异步补录 bloom")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// 不存在的 ID：校验一次后仍返回 ErrNotFound（不会把负数查询变成错误）。
+	if _, err = cr.GetByID(ctx, 999); !errors.Is(err, crud.ErrNotFound) {
+		t.Fatalf("不存在的 ID 应返回 ErrNotFound, got %v", err)
+	}
+	if n := repo.count("GetByID"); n != 2 {
+		t.Fatalf("repo calls=%d, want 2（7 校验一次 + 999 校验一次）", n)
 	}
 }

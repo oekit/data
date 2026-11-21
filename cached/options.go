@@ -27,16 +27,19 @@ type OnErrorFunc func(ctx context.Context, op string, keys []string, err error)
 
 // config 是装饰器配置。
 type config[T any, ID comparable] struct {
-	repo     crud.Repository[T, ID]
-	prefix   string
-	typ      string
-	idFn     func(*T) ID
-	encode   func(ID) string
-	decode   func(string) (ID, error)
-	qc       *QueryCache[T]
-	bloom    BloomChecker
-	onError  OnErrorFunc
-	scopeKey ScopeKeyFunc
+	repo   crud.Repository[T, ID]
+	prefix string
+	typ    string
+	idFn   func(*T) ID
+	encode func(ID) string
+	decode func(string) (ID, error)
+	qc     *QueryCache[T]
+	bloom  BloomChecker
+	// bloomVerifyOnMiss 见 WithBloomVerifyOnMiss：bloom 判「绝对不存在」时
+	// 仍做一次仓储校验（存在则异步补录），用防穿透换漏录期的正确性。
+	bloomVerifyOnMiss bool
+	onError           OnErrorFunc
+	scopeKey          ScopeKeyFunc
 
 	// idAcc 构造期解析好的 ID 访问器（WithID 优先，缺省探测次之，
 	// 都没有则为 nil）——写路径不再逐次反射（#181）。
