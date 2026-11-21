@@ -224,6 +224,12 @@ repo := cached.NewRepository[User, int64](rawRepo, factory,
 自动 Add 新 ID，事务提交后同样生效）；存量 ID 必须预热；ID 空间单调递增
 （自增主键满足）。bloom 读失败 fail-open 放行仓储（绝不 fail-closed）。
 
+补录失败的账本（bloomPending）只在进程内存里：进程重启后丢失，漏录 ID
+将被永久判 not-found（只能全量预热修复）；旁路写入同样不产生账本信号。
+无法保证预热/旁路约束时开启 `cached.WithBloomVerifyOnMiss[User, int64]()`
+——bloom 未命中时回源确认一次并在命中后异步补录，用一次读放大换正确性
+（对真正不存在的 ID 不再享受零仓储调用）。
+
 ## twolevel：两级缓存 + 跨实例失效广播
 
 L1 本地缓存 + L2 任意 CacheAside（典型 RedisCache）读穿写透组合，实现

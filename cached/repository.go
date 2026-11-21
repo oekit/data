@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/oekit/concurrency/async"
 	"github.com/oekit/gormx/crud"
 	"github.com/oekit/pkg/cache"
 	"github.com/oekit/pkg/errors"
@@ -121,9 +122,23 @@ func (r *CachedRepository[T, ID]) source(ctx context.Context, key string) (*T, e
 	if err != nil {
 		return nil, errors.Wrapf(err, "cached: key %q 的 ID 段非法", key)
 	}
-	// 布隆前置门（可选件）：判定"绝对不存在"直接走 null marker，仓储零调用
+	// 布隆前置门（可选件）：判定"绝对不存在"直接走 null marker，仓储零调用。
+	// WithBloomVerifyOnMiss 时改为回源确认一次（data#299）：漏录的旧行
+	// 不能因为「bloom 里没有」被永久误杀；确认存在则异步补录，下一次点读
+	// 恢复前置门拦截。
 	if r.bloomGate(ctx, id) {
-		return nil, nil
+		if !r.cfg.bloomVerifyOnMiss {
+			return nil, nil
+		}
+		entity, gerr := r.cfg.repo.GetByID(ctx, id)
+		if gerr != nil {
+			if errors.Is(gerr, crud.ErrNotFound) {
+				return nil, nil
+			}
+			return nil, gerr
+		}
+		async.GoSafe(func() { r.bloomAdd(ctx, []ID{id}) })
+		return entity, nil
 	}
 	entity, err := r.cfg.repo.GetByID(ctx, id)
 	if err != nil {
