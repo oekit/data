@@ -1,5 +1,11 @@
 
 
+## [v0.24.1] — 2026-11-21
+
+- - fix: distlock 壳跟版 redisx WithOnLockLost/WithSemaphoreOnLockLost——#257 丢锁回调导出面进门面（shell_sync 拦截）（#257）
+
+关联问题单：data#257。
+
 ## [v0.24.0] — 2026-11-21
 
 - 第三轮设计/缺陷审计（2026-11-21）data 修复：
