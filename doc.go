@@ -2,7 +2,7 @@
 // 缓存、CRUD、分布式锁、GORM、Redis、定时任务，一个 import 前缀直达。
 //
 // 十个子包是纯 re-export 壳：类型为泛型 type alias（与源包完全同一类型，
-// 双向赋值互通），实现分别住在 pkg/cache 与 gormx/redisx/timertask 各子仓；
+// 双向赋值互通），实现分别住在 pkg/cache 与 gormx/redisx 各子仓；
 // 门面只做命名空间聚合，不持有实现。只使用单一能力时可直接依赖对应子仓
 // （依赖面最小）；全家桶场景 go get github.com/oekit/data 即可。
 //
@@ -23,7 +23,6 @@
 //	distlock/   ← redisx/distlock      分布式锁
 //	gormx/      ← gormx                SQL/GORM 增强
 //	redisx/     ← redisx               Redis 客户端封装
-//	timertask/  ← timertask            分片定时任务
 //	cachetest/  ← pkg/cache/cachetest  缓存实现契约测试套件
 //	cached/     ← 本仓实现             缓存读写编排（仓储装饰器 + GetByIDs/bloom，见其包文档）
 //	twolevel/   ← 本仓实现             两级缓存组合 + 跨实例失效广播（见其包文档）
