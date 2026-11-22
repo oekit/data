@@ -1,6 +1,6 @@
 # data
 
-> oekit 数据访问门面——复刻 ekit 单体库 data/ 能力面：cache/rediscache/crud/gormrepo/datatypes/distlock/gormx/redisx/timertask/cachetest 十子包 + cached 缓存读写编排 + twolevel 两级缓存，一个 import 前缀直达
+> oekit 数据访问门面——复刻 ekit 单体库 data/ 能力面：cache/rediscache/crud/gormrepo/datatypes/distlock/gormx/redisx/cachetest 九子包 + cached 缓存读写编排 + twolevel 两级缓存，一个 import 前缀直达
 
 > 🌐 项目主页：**https://oekit.github.io/** · 名称由来：**O**pen **E**asy **Kit**（开源 · 易用 · 工具集合）
 > 🤖 AI Agent：本仓规范与硬规则见 [AGENTS.md](AGENTS.md)；机器可读索引见 [llms.txt](https://oekit.github.io/llms.txt)（接口签名以源码为准）。
@@ -27,7 +27,6 @@ go get github.com/oekit/data@v0.24.1
 | `distlock` | 分布式锁（RedisLocker/WithLock/优雅降级/Renew 续期）+ Semaphore 信号量 + Lockout 防爆破锁 | [redisx](https://github.com/oekit/redisx) `distlock/` |
 | `gormx` | SQL/GORM 增强（Open/审计/OTel 插件/分页/单例仓储） | [gormx](https://github.com/oekit/gormx) |
 | `redisx` | Redis 客户端封装（String/Hash/Set/ZSet/Bloom/Batch/PubSub） | [redisx](https://github.com/oekit/redisx) |
-| `timertask` | 分片定时任务——本地后端（LocalBackend）+ 选项集 + `BackendConfig`/`ResolveOptions`；**Redis 形态自 timertask v0.2.0 起迁至嵌套模块** `timertask/redis`（本壳不再转发 RedisBackend/ShardManager，需 Redis 形态请直接依赖该嵌套模块） | [timertask](https://github.com/oekit/timertask) |
 | `cachetest` | CacheAside 实现契约测试套件（15 场景——pkg v0.16.0 起新增 Sweep 手动清扫 / 命中标志 / 读隔离 / 读提升 / 无后台 goroutine 五项；pkg v0.23.0 起新增 stale-if-error 兜底 / stale 可反复兜底两项） | [pkg](https://github.com/oekit/pkg) `cache/cachetest/` |
 
 仅有的两个例外是本仓原生子包：**缓存读写编排**与**两级缓存组合**：
@@ -281,7 +280,7 @@ repo := cached.NewRepository[User, int64](rawRepo, func(src cache.SourceFunc[Use
   源仓新增导出符号时本仓壳需同步（跟版税由门面化决策承担，dependabot
   只升 pin 不补壳）；`cached` 与 `twolevel` 是仅有的两个例外（本仓实现，
   组合 crud 与 pkg/cache/redisx 的既有接口，不引入新底层依赖）
-- 只用单一能力时直接依赖对应子仓（依赖面最小）：gormx/redisx/timertask/pkg
+- 只用单一能力时直接依赖对应子仓（依赖面最小）：gormx/redisx/timertask/pkg（timertask 无门面壳，直用源仓）
 - 只需本地缓存的轻量场景可直接依赖 [pkg](https://github.com/oekit/pkg) 的
   `cache` 子包（不经门面）
 - 需要"一键全家桶依赖聚合"（不 import 门面命名空间）的旧行为已废弃：
@@ -304,7 +303,7 @@ repo := cached.NewRepository[User, int64](rawRepo, func(src cache.SourceFunc[Use
 | [metrics](https://github.com/oekit/metrics) | Prometheus 门面 + 弹性指标族 | [core](https://github.com/oekit/core) |
 | [tracing](https://github.com/oekit/tracing) | OpenTelemetry 追踪 + trace_id 真相源（v0.3.0 起 OTLP 双协议导出：gRPC 缺省 / HTTP，Config.Protocol + Headers，切换协议不丢传播器/指标/旧 provider 关闭） | [logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
 | [registry](https://github.com/oekit/registry) | 注册发现核心（provider 无关 SPI：Registrar/Discoverer/Subscriber/ConfigStore + 实例模型 + netutil）+ sdbridge + registrymocks——**根仓零第三方依赖**；Nacos 实现与 Nacos 配置源已拆成嵌套模块（v0.5.0 起：registry/nacosimpl、registry/nacos——nacos-sdk-go 重依赖隔离在此，实测单独引入即拖 63 个第三方模块，不隔离时只要 SPI 接口的消费方也会被连带拖入） | [concurrency](https://github.com/oekit/concurrency)、[core](https://github.com/oekit/core)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
-| [data](https://github.com/oekit/data) | 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/timertask/cachetest 八子包 re-export（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs 批量点读 MGet 快路径/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；v0.15.0 起壳跟随源仓演进——cache 壳补 LocalCache 可选形状（EvictPolicy/Sweeper/HitGetter）、cachetest 壳补 5 个契约套件入口（套件 8 → 13 场景）、v0.18.0 起 cache 壳补 PeekGetter 别名 + cachetest 壳补 2 个 stale-if-error 契约入口（套件 13 → 15 场景）、timertask 壳的 Redis 形态随源仓 v0.2.0 迁至嵌套模块 timertask/redis（壳不再转发 RedisBackend/ShardManager，Redis 形态直接依赖该嵌套模块）；all/ 聚合模块已废弃 retract | [concurrency](https://github.com/oekit/concurrency)、[gormx](https://github.com/oekit/gormx)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg)、[redisx](https://github.com/oekit/redisx)、[timertask](https://github.com/oekit/timertask) |
+| [data](https://github.com/oekit/data) | 数据访问门面——复刻 ekit data/ 能力面：cache/rediscache/crud/distlock/gormx/redisx/cachetest 七子包 re-export（timertask 壳已拆除 v0.24.2，零消费方的跟版税）（类型同一，实现住 pkg 与各子仓）+ cached 缓存读写编排（写后失效/事务提交后失效/查询缓存版本号失效/GetByIDs 批量点读 MGet 快路径/bloom 防穿透）+ twolevel 两级缓存与跨实例失效广播（v0.7.0 起本仓唯二非 re-export 实现）；v0.15.0 起壳跟随源仓演进——cache 壳补 LocalCache 可选形状（EvictPolicy/Sweeper/HitGetter）、cachetest 壳补 5 个契约套件入口（套件 8 → 13 场景）、v0.18.0 起 cache 壳补 PeekGetter 别名 + cachetest 壳补 2 个 stale-if-error 契约入口（套件 13 → 15 场景）、timertask 壳的 Redis 形态随源仓 v0.2.0 迁至嵌套模块 timertask/redis（壳不再转发 RedisBackend/ShardManager，Redis 形态直接依赖该嵌套模块）；all/ 聚合模块已废弃 retract | [concurrency](https://github.com/oekit/concurrency)、[gormx](https://github.com/oekit/gormx)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg)、[redisx](https://github.com/oekit/redisx)、[timertask](https://github.com/oekit/timertask) |
 | [gormx](https://github.com/oekit/gormx) | SQL/GORM 全家——连接池增强、框架无关 CRUD Service、仓储（原 oekit/gorm，v0.3.0 更名） | [logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
 | [redisx](https://github.com/oekit/redisx) | Redis 全家——客户端封装（根包）、分布式缓存 cache/、分布式锁 distlock（Locker 同形可互换；Renew 手动续期（false=锁丢失，不进 Locker 接口保 etcdx 互换）+ WithAutoRenew 覆盖 TryLock 自动续期（v0.8.0 feat!：此前组合不续期）；Semaphore ZSET 槽位信号量（v0.8.0：Acquire 同 identifier 幂等刷新 + Lua 内原子清过期槽崩溃自愈、Renew 仅未过期槽可续、Cleanup 返条数、无 Redis 降级 fail-fast））、分布式限流 ratelimit（Lua 三态 + 故障本地兜底）；v0.9.0 起 distlock Lockout 分布式防爆破锁（Redis 侧 fail2ban：滑窗失败计数→阈值锁定 Penalty→Reset 清零，与 concurrency/ratelimit.Lockout 进程内孪生——多实例共享计数是存在理由；惩罚只按首次触发计算、nil client fail-fast 不降级，#6） | [concurrency](https://github.com/oekit/concurrency)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg) |
 | [etcdx](https://github.com/oekit/etcdx) | etcd 全家——客户端封装（根包：生产默认值/Health 探活/Close(ctx) 幂等）、registry 注册发现实现（SPI 对接 registry/nacos 链路：Lease KeepAlive 注册 + 丢约指数退避自动重注册、prefix Watch 订阅推送、ConfigStore KV 配置监听）、distlock 分布式锁（Session+concurrency.Mutex 公平排队，接口与 redisx/distlock.Locker 同形可互换，可选无 etcd 降级放行） | [concurrency](https://github.com/oekit/concurrency)、[logx](https://github.com/oekit/logx)、[pkg](https://github.com/oekit/pkg)、[registry](https://github.com/oekit/registry) |
