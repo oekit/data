@@ -1,5 +1,9 @@
 
 
+## [v0.25.0] — 2026-11-23
+
+- refactor: 拆除 data/timertask 门面壳（零消费方的门面跟版税）——纯 type alias 转发壳全矩阵非测试 import 为 0，壳只留两笔持续支付的税：门面跟版义务（timertask 每新增导出符号都要同步 alias 表，agentkit 门面 48 alias 的历史教训）+ BOM 地板错配面（data→timertask 的 require 参与地板跑步机空转）。timertask 直用 github.com/oekit/timertask（矩阵定位：分片定时任务独立仓），data 门面叙事收窄到 cache/gormrepo/redisx/distlock 真实实现消费面。README 模块表同步
+
 ## [v0.24.1] — 2026-11-21
 
 - - fix: distlock 壳跟版 redisx WithOnLockLost/WithSemaphoreOnLockLost——#257 丢锁回调导出面进门面（shell_sync 拦截）（#257）
