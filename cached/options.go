@@ -16,22 +16,30 @@ type CacheFactory[T any] func(source cache.SourceFunc[T]) cache.CacheAside[T]
 
 // OnErrorFunc 缓存侧异常上报钩子：读降级（op="read"）、回填失败
 // （op="backfill"）、指纹失败（op="fingerprint"）、写后失效失败
-// （op="invalidate"）。所有场景都是"降级继续 + TTL 兜底"，钩子只管
-// 观测（记日志/打点），不能也不需要参与决策。
+// （op="invalidate"）、键段编码非法（op="encode"，#285）。所有场景都是
+// "降级继续 + TTL 兜底"，钩子只管观测（记日志/打点），不能也不需要
+// 参与决策。
+//
+// 指纹降级有两条上报路径且都可辨（#251）：指纹函数返回 error 时 err
+// 即该错误；返回空串（合法的「本次别缓存」形态）时 err 为哨兵
+// ErrFingerprintDegraded（errors.Is 判定）。两者 op 同为 "fingerprint"。
 type OnErrorFunc func(ctx context.Context, op string, keys []string, err error)
 
 // config 是装饰器配置。
 type config[T any, ID comparable] struct {
-	repo     crud.Repository[T, ID]
-	prefix   string
-	typ      string
-	idFn     func(*T) ID
-	encode   func(ID) string
-	decode   func(string) (ID, error)
-	qc       *QueryCache[T]
-	bloom    BloomChecker
-	onError  OnErrorFunc
-	scopeKey ScopeKeyFunc
+	repo   crud.Repository[T, ID]
+	prefix string
+	typ    string
+	idFn   func(*T) ID
+	encode func(ID) string
+	decode func(string) (ID, error)
+	qc     *QueryCache[T]
+	bloom  BloomChecker
+	// bloomVerifyOnMiss 见 WithBloomVerifyOnMiss：bloom 判「绝对不存在」时
+	// 仍做一次仓储校验（存在则异步补录），用防穿透换漏录期的正确性。
+	bloomVerifyOnMiss bool
+	onError           OnErrorFunc
+	scopeKey          ScopeKeyFunc
 
 	// idAcc 构造期解析好的 ID 访问器（WithID 优先，缺省探测次之，
 	// 都没有则为 nil）——写路径不再逐次反射（#181）。
@@ -66,18 +74,26 @@ func WithID[T any, ID comparable](fn func(*T) ID) CachedOption[T, ID] {
 // 的键格式完全兼容）。其余 comparable 类型（复合键、自定义结构等）的
 // 键往返不可逆，必须显式注入——否则 source 解析键时报错（fail-fast，
 // 不会静默错回源）。
+//
+// encode 产物是单个键段，不得含 ':'（#285）：键按 ':' 分层，含 ':' 的
+// ID 段与相邻段不可区分（scope "a"+ID "b:c" ≡ scope "a:id:b"+ID "c"，
+// 跨实体串键）。含 ':' 的产物在运行期被判非法——该 ID 点读降级直查、
+// 失效跳过（onError op="encode"），不会静默串键；文本主键含 ':' 时请
+// 在 encode 里做可逆转义（如 hex/base64 编码）。
 func WithIDCodec[T any, ID comparable](encode func(ID) string, decode func(string) (ID, error)) CachedOption[T, ID] {
 	return func(c *config[T, ID]) { c.encode, c.decode = encode, decode }
 }
 
 // WithType 覆盖键中的类型名段（默认反射类型名字符串，如 "main.User"）。
 // 同一实体跨服务共用缓存前缀时建议显式指定短名。
+// 类型名不得含 ':'（#285）——构造期含 ':' 直接 panic（键段分层立约）。
 func WithType[T any, ID comparable](name string) CachedOption[T, ID] {
 	return func(c *config[T, ID]) { c.typ = name }
 }
 
 // WithPrefix 覆盖键前缀（默认 "cached"）。多应用共享一个 Redis 时用
 // 应用名做前缀隔离。
+// 前缀不得含 ':'（#285）——构造期含 ':' 直接 panic（键段分层立约）。
 func WithPrefix[T any, ID comparable](prefix string) CachedOption[T, ID] {
 	return func(c *config[T, ID]) { c.prefix = prefix }
 }
@@ -124,7 +140,11 @@ type ScopeKeyFunc func(ctx context.Context) (string, error)
 //     onError 上报，TTL 兜底；bloom 补录不消费作用域、照常执行，见 #204），
 //     **绝不**回落到无作用域的共享键；
 //   - 作用域键不得为空串——空串会被拒绝（否则等于没开隔离）；确实没有
-//     作用域时请返回一个占位值（如 "-"）。
+//     作用域时请返回一个占位值（如 "-"）；
+//   - 作用域键不得含 ':'（#285）——':' 是键分层分隔符，含 ':' 的作用域
+//     与相邻键段不可区分（scope "a:id:b" 的键 ≡ scope "a"+ID 段 "b:c"，
+//     跨实体串键）。运行期解析出含 ':' 的作用域按解析失败处理（读降级
+//     直查、写跳过失效 + 上报，绝不以歧义键触碰缓存）。
 //
 // 未启用时（默认）键形态与历史完全一致（无 scope 段），行为不变。
 func WithScopeKey[T any, ID comparable](fn ScopeKeyFunc) CachedOption[T, ID] {

@@ -3,10 +3,10 @@ package cached
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/oekit/gormx/crud"
 	"github.com/oekit/pkg/cache"
+	pkgerrors "github.com/oekit/pkg/errors"
 )
 
 // GetByIDs 批量点读：后端具备 MGet 批量能力（pkg/cache.BatchGetter，
@@ -50,7 +50,12 @@ func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[I
 			keys := make([]string, 0, len(unique))
 			keyOf := make(map[ID]string, len(unique))
 			for _, id := range unique {
-				k := r.idKey(scope, id)
+				k, kerr := r.idKey(scope, id)
+				if kerr != nil {
+					// ID 键段含 ':'（#285）：该 ID 不进批量键，留在 pending
+					// 走逐个点读（GetByID 内降级直查并上报 op="encode"）。
+					continue
+				}
 				keys = append(keys, k)
 				keyOf[id] = k
 			}
@@ -65,7 +70,13 @@ func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[I
 					// 契约下 nil 真值条目以 (key, nil) 形态在场（#198，契约内
 					// 形态而非后端违约），不得把 nil 实体塞进结果 map——按缺席
 					// 回退点读路径（marker 在 GetOrLoad 短路，不会重复回源）。
-					if v, hit := hits[keyOf[id]]; hit && v != nil {
+					k, hasKey := keyOf[id]
+					if !hasKey {
+						// #285：键段非法被跳过的 ID，留在 pending 走逐个点读
+						pending = append(pending, id)
+						continue
+					}
+					if v, hit := hits[k]; hit && v != nil {
 						out[id] = v
 					} else {
 						pending = append(pending, id)
@@ -81,7 +92,7 @@ func (r *CachedRepository[T, ID]) GetByIDs(ctx context.Context, ids []ID) (map[I
 			if errors.Is(err, crud.ErrNotFound) {
 				continue
 			}
-			errs = append(errs, fmt.Errorf("cached: id %v: %w", id, err))
+			errs = append(errs, pkgerrors.Wrapf(err, "cached: id %v", id))
 			continue
 		}
 		out[id] = v

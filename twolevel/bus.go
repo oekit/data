@@ -114,6 +114,11 @@ func (b *Bus) acquire(parent context.Context, onEvict func(key string)) (*busSub
 }
 
 // publish 发布失效消息（best-effort）。
+//
+// 广播是「删除已发生」的告示：调用方 ctx 在删除成功后取消（客户端断开 /
+// deadline 到期 / defer cancel）不得吞掉跨实例失效（#252，口径同
+// cached.invalidate 的 #141）。WithoutCancel 收进本函数一处，全部调用点
+// （含未来新增）无需各自记得。
 func (b *Bus) publish(ctx context.Context, keys []string) {
 	if b == nil || len(keys) == 0 {
 		return
@@ -123,7 +128,7 @@ func (b *Bus) publish(ctx context.Context, keys []string) {
 		twoLevelLog.Warn("two-level bus marshal failed", "keys", keys, logx.ErrKey, err)
 		return
 	}
-	if err := b.client.Publish(ctx, b.channel, blob).Err(); err != nil {
+	if err := b.client.Publish(context.WithoutCancel(ctx), b.channel, blob).Err(); err != nil {
 		twoLevelLog.Warn("two-level bus publish failed",
 			"channel", b.channel, "keys", keys, logx.ErrKey, err)
 	}

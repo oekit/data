@@ -21,17 +21,23 @@ type RedisLockerOption = src.RedisLockerOption
 type Semaphore = src.Semaphore
 type Lockout = src.Lockout
 type LockoutConfig = src.LockoutConfig
+type FailResult = src.FailResult
 
 var ErrLockNotAcquired = src.ErrLockNotAcquired
 var ErrLockTimeout = src.ErrLockTimeout
 
 // ErrLockNotHeld 解锁时锁不存在或已易主——本次 Unlock 没有删除任何锁（redisx/distlock #115）。
 var ErrLockNotHeld = src.ErrLockNotHeld
+
+// ErrGuardClosed 防爆破锁已 Close（redisx/distlock guard.go）：关停后的实例不得复用。
+var ErrGuardClosed = src.ErrGuardClosed
 var WithLock = src.WithLock
 var NewRedisLocker = src.NewRedisLocker
 var NewSemaphore = src.NewSemaphore
 var NewLockout = src.NewLockout
 var WithAutoRenew = src.WithAutoRenew
+var WithOnLockLost = src.WithOnLockLost
+var WithSemaphoreOnLockLost = src.WithSemaphoreOnLockLost
 var WithGracefulDegradation = src.WithGracefulDegradation
 
 // WithLogger 注入 per-instance 日志（redisx/distlock #120）；watchdog 告警只进该日志。

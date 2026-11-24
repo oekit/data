@@ -2,10 +2,10 @@ package cached
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/oekit/gormx/crud"
+	"github.com/oekit/pkg/errors"
 )
 
 // 本文件是事务路径职责（#179 拆分）：装饰器的事务包装（RunInTx）与
@@ -17,13 +17,13 @@ import (
 func (r *CachedRepository[T, ID]) RunInTx(ctx context.Context, fn func(repo crud.Repository[T, ID]) error) error {
 	txRepo, ok := r.cfg.repo.(crud.TxRepository[T, ID])
 	if !ok {
-		return fmt.Errorf("cached: 底层仓储未实现 TxRepository，无法开启事务")
+		return errors.New("cached: 底层仓储未实现 TxRepository，无法开启事务")
 	}
 	tw := &txCollector[T, ID]{outer: r}
 	err := txRepo.RunInTx(ctx, func(txRepo crud.Repository[T, ID]) error {
 		innerTx, ok := txRepo.(crud.TxRepository[T, ID])
 		if !ok {
-			return fmt.Errorf("cached: 事务内仓储未实现 TxRepository")
+			return errors.New("cached: 事务内仓储未实现 TxRepository")
 		}
 		tw.rebind(txRepo, innerTx)
 		return fn(tw)
@@ -54,7 +54,7 @@ func (r *CachedRepository[T, ID]) RunInTx(ctx context.Context, fn func(repo crud
 func (r *CachedRepository[T, ID]) GetByIDForUpdate(ctx context.Context, id ID) (*T, error) {
 	txRepo, ok := r.cfg.repo.(crud.TxRepository[T, ID])
 	if !ok {
-		return nil, fmt.Errorf("cached: 底层仓储未实现 TxRepository")
+		return nil, errors.New("cached: 底层仓储未实现 TxRepository")
 	}
 	return txRepo.GetByIDForUpdate(ctx, id)
 }
@@ -220,7 +220,7 @@ func (t *txCollector[T, ID]) RunInTx(ctx context.Context, fn func(repo crud.Repo
 	return t.boundTx().RunInTx(ctx, func(repo crud.Repository[T, ID]) error {
 		innerTx, ok := repo.(crud.TxRepository[T, ID])
 		if !ok {
-			return fmt.Errorf("cached: 事务内仓储未实现 TxRepository")
+			return errors.New("cached: 事务内仓储未实现 TxRepository")
 		}
 		t.rebind(repo, innerTx)
 		return fn(t)

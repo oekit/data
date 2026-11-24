@@ -14,9 +14,11 @@
 //   - 查询缓存（GetOne/List）经 WithQueryCache 显式开启：键 =
 //     「表级版本号 + QuerySpec 指纹」，任意写操作 bump 版本让旧键
 //     自然过期（改一行即全表列表失效，代价是列表命中率换一致性）。
-//     GetOne/List 的负结果不缓存（普通 Cache 接口无 null marker
-//     通道）。ForUpdate 读永不缓存。Exists/Count/GetByCondition
-//     永远直通。
+//     GetOne/List 的负结果在后端实现 cache.HitGetter 时写负标记防
+//     穿透（GetEx 的 hit=true/value=nil 即「确定不存在」，条目 TTL
+//     兜底；经本仓储的写操作 bump 版本即失效）；后端不具备该能力
+//     （SingleFlightCache/RedisCache 当前形态）时负结果每次回源。
+//     ForUpdate 读永不缓存。Exists/Count/GetByCondition 永远直通。
 //   - 事务安全：CachedRepository 实现 TxRepository——RunInTx 事务内
 //     的写操作只收集失效清单，提交成功后统一执行失效（嵌套事务同样
 //     收集，由最外层提交后执行）；回滚不失效。失效必须发生在提交后：

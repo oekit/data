@@ -2,15 +2,15 @@ package cached
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"reflect"
 	"strings"
-
-	"github.com/oekit/gormx/crud"
-	"github.com/oekit/pkg/cache"
 	"sync"
 	"sync/atomic"
+
+	"github.com/oekit/concurrency/async"
+	"github.com/oekit/gormx/crud"
+	"github.com/oekit/pkg/cache"
+	"github.com/oekit/pkg/errors"
 )
 
 // 本文件是装饰器本体与读路径职责（#179 拆分）：CachedRepository 类型、
@@ -66,6 +66,18 @@ func NewRepository[T any, ID comparable](repo crud.Repository[T, ID], newCache C
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// 构造期键段立约（#285）：prefix/typ 是写死进每一个键的静态段，含
+	// ':' 即与键分层分隔符不可区分（前缀 "a:b"+typ "c" 与前缀 "a"+typ
+	// "b:c" 拼出同一 typePrefix，跨实体串键）——装配期即 panic（同本
+	// 构造器既有 fail-fast 口径；同族先例 etcdx registry#110/distlock#138、
+	// pkg/cache#188）。动态段（scope / ID 编码产物）在运行期校验，见
+	// scope() 与 encodeIDSegment。
+	if err := checkKeySegment("前缀", cfg.prefix); err != nil {
+		panic("cached: NewRepository 装配期拒绝: " + err.Error())
+	}
+	if err := checkKeySegment("类型名", cfg.typ); err != nil {
+		panic("cached: NewRepository 装配期拒绝: " + err.Error())
+	}
 	// 构造期单源化（#181）：ID 访问器与键段解码器各解析一次，写路径与
 	// 缓存 miss 热路径不再逐次反射。
 	cfg.idAcc = resolveIDAccessor[T, ID](cfg.idFn)
@@ -104,15 +116,29 @@ func (r *CachedRepository[T, ID]) source(ctx context.Context, key string) (*T, e
 	}
 	rest, ok := strings.CutPrefix(key, r.idKeyPrefix(scope))
 	if !ok {
-		return nil, fmt.Errorf("cached: key %q 不属于类型 %q 的 ID 键空间", key, r.cfg.typ)
+		return nil, errors.Newf("cached: key %q 不属于类型 %q 的 ID 键空间", key, r.cfg.typ)
 	}
 	id, err := r.decodeID(rest)
 	if err != nil {
-		return nil, fmt.Errorf("cached: key %q 的 ID 段非法: %w", key, err)
+		return nil, errors.Wrapf(err, "cached: key %q 的 ID 段非法", key)
 	}
-	// 布隆前置门（可选件）：判定"绝对不存在"直接走 null marker，仓储零调用
+	// 布隆前置门（可选件）：判定"绝对不存在"直接走 null marker，仓储零调用。
+	// WithBloomVerifyOnMiss 时改为回源确认一次（data#299）：漏录的旧行
+	// 不能因为「bloom 里没有」被永久误杀；确认存在则异步补录，下一次点读
+	// 恢复前置门拦截。
 	if r.bloomGate(ctx, id) {
-		return nil, nil
+		if !r.cfg.bloomVerifyOnMiss {
+			return nil, nil
+		}
+		entity, gerr := r.cfg.repo.GetByID(ctx, id)
+		if gerr != nil {
+			if errors.Is(gerr, crud.ErrNotFound) {
+				return nil, nil
+			}
+			return nil, gerr
+		}
+		async.GoSafe(func() { r.bloomAdd(ctx, []ID{id}) })
+		return entity, nil
 	}
 	entity, err := r.cfg.repo.GetByID(ctx, id)
 	if err != nil {
@@ -151,7 +177,14 @@ func (r *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (*T, error
 	if !ok {
 		return r.cfg.repo.GetByID(ctx, id)
 	}
-	key := r.idKey(scope, id)
+	key, err := r.idKey(scope, id)
+	if err != nil {
+		// ID 键段含 ':'（#285）：无法构造无歧义键 ⇒ 降级直查仓储（仓储
+		// 是权威源，直查不会串数据），经 onError 上报 op="encode"。与
+		// 作用域解析失败同口径：绝不带着歧义键回缓存。
+		r.report(ctx, "encode", nil, err)
+		return r.cfg.repo.GetByID(ctx, id)
+	}
 	v, err := r.entity.GetOrLoad(ctx, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)
@@ -168,7 +201,31 @@ func (r *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (*T, error
 	return v, nil
 }
 
-// GetOne 条件单读：开启查询缓存时走「版本号 + 指纹」键，负结果不缓存，
+// getQueryHit 读查询缓存并区分「未命中」与「命中」：后端实现
+// cache.HitGetter 时走 GetEx——hit=true/value=nil 即负标记命中，与
+// miss 可辨；不具备该能力时退回 Get，此时 hit 只表示值非 nil，nil
+// 一律按 miss 回源（负结果不可缓存，历史行为）。
+func getQueryHit[T any](ctx context.Context, c cache.Cache[T], key string) (v *T, hit bool, err error) {
+	if hg, ok := c.(cache.HitGetter[T]); ok {
+		return hg.GetEx(ctx, key)
+	}
+	v, err = c.Get(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
+	return v, v != nil, nil
+}
+
+// canCacheNegative 负结果缓存的前提：后端能区分「nil 真值/负标记命中」
+// 与「miss」（HitGetter）。无该能力时写 nil 与 miss 不可分，写标记不
+// 改变读语义，只会白付一次写。
+func canCacheNegative[T any](c cache.Cache[T]) bool {
+	_, ok := c.(cache.HitGetter[T])
+	return ok
+}
+
+// GetOne 条件单读：开启查询缓存时走「版本号 + 指纹」键；后端具备
+// HitGetter 能力时负结果写负标记防穿透（#253），否则负结果每次回源；
 // ForUpdate 读与指纹失败降级直查。
 func (r *CachedRepository[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T, error) {
 	if r.cfg.qc == nil {
@@ -182,17 +239,33 @@ func (r *CachedRepository[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T
 	if !ok {
 		return r.cfg.repo.GetOne(ctx, q)
 	}
-	v, err := r.cfg.qc.entity.Get(ctx, key)
+	v, hit, err := getQueryHit(ctx, r.cfg.qc.entity, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)
 		return r.cfg.repo.GetOne(ctx, q)
 	}
-	if v != nil {
+	if hit {
+		if v == nil {
+			// 负标记命中：GetOne 的 nil 结果没有「nil 真值」语义，
+			// 无行即 ErrNotFound（与点读 null marker 同口径）。
+			return nil, crud.ErrNotFound
+		}
 		return v, nil
 	}
 	entity, err := r.cfg.repo.GetOne(ctx, q)
 	if err != nil {
+		// 负结果写标记（#253）：仅当后端具备 HitGetter 时写 nil——
+		// 无该能力时 nil 与 miss 不可分，写标记不改变读语义（#167）；
+		// 条目 TTL 兜底，经本仓储的写操作 bump 版本即失效。
+		if errors.Is(err, crud.ErrNotFound) && canCacheNegative(r.cfg.qc.entity) {
+			if serr := r.cfg.qc.entity.SetWithTTL(ctx, key, nil, r.cfg.qc.ttl); serr != nil {
+				r.report(ctx, "backfill", []string{key}, serr)
+			}
+		}
 		return nil, err
+	}
+	if entity == nil {
+		return nil, nil // 契约外形态 (nil, nil)：原样透传，不写负标记
 	}
 	if err := r.cfg.qc.entity.SetWithTTL(ctx, key, entity, r.cfg.qc.ttl); err != nil {
 		r.report(ctx, "backfill", []string{key}, err)
@@ -201,7 +274,8 @@ func (r *CachedRepository[T, ID]) GetOne(ctx context.Context, q *crud.Query) (*T
 }
 
 // List 条件列表：开启查询缓存时走「版本号 + 指纹」键缓存整页结果，
-// 任意写操作 bump 版本整体失效。
+// 任意写操作 bump 版本整体失效；后端具备 HitGetter 能力时空页负结果
+// 也写标记防穿透（#253），否则空页每次回源。
 func (r *CachedRepository[T, ID]) List(ctx context.Context, q *crud.Query) ([]T, int64, error) {
 	if r.cfg.qc == nil {
 		return r.cfg.repo.List(ctx, q)
@@ -214,23 +288,21 @@ func (r *CachedRepository[T, ID]) List(ctx context.Context, q *crud.Query) ([]T,
 	if !ok {
 		return r.cfg.repo.List(ctx, q)
 	}
-	page, err := r.cfg.qc.page.Get(ctx, key)
+	page, hit, err := getQueryHit(ctx, r.cfg.qc.page, key)
 	if err != nil {
 		r.report(ctx, "read", []string{key}, err)
 		return r.cfg.repo.List(ctx, q)
 	}
-	if page != nil {
+	if hit && page != nil {
 		return page.Items, page.Total, nil
 	}
 	items, total, err := r.cfg.repo.List(ctx, q)
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(items) == 0 && total == 0 {
-		// 负结果不入查询缓存（#167，与 doc/README「负结果不缓存」契约对齐）：
-		// 普通 Cache 无 null marker 通道，空页以正形态落盘会与「有行」不可分；
-		// 带外写入（不 bump 表级版本号）时 List 与 GetOne 会结论相反。空页
-		// 每次回源（GetOne 负结果路径同口径：直接上抛、不写缓存）。
+	if len(items) == 0 && total == 0 && !canCacheNegative(r.cfg.qc.page) {
+		// 后端无法区分 miss 与空页真值：空页以正形态落盘会与「有行」不可分
+		// （#167 历史口径），保持每次回源。
 		return items, total, nil
 	}
 	if err := r.cfg.qc.page.SetWithTTL(ctx, key, &QueryPage[T]{Items: items, Total: total}, r.cfg.qc.ttl); err != nil {
@@ -255,9 +327,9 @@ func (r *CachedRepository[T, ID]) Count(ctx context.Context, q *crud.Query) (int
 }
 
 // queryCacheKey 计算查询缓存键：ForUpdate 永不缓存；指纹失败降级直通；
-// 版本 miss/读失败以空版本兜底（旧版本键查不到即重建；注意若版本后端
-// 持续故障而条目后端正常，空版本键可能命中上一轮降级窗口的旧条目——
-// 仍受条目 TTL 约束）。
+// 版本键缺失/过期时签发新令牌（旧令牌下的条目自然作废），版本读失败
+// 降级直通——**空版本键绝不参与命中**（#250）：空版本键上的历史条目
+// 不在任何 bump 的失效范围内，命中即写后读旧值。
 func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope string, q *crud.Query, kind string) (string, bool) {
 	var spec crud.QuerySpec
 	if q != nil {
@@ -267,18 +339,40 @@ func (r *CachedRepository[T, ID]) queryCacheKey(ctx context.Context, scope strin
 		return "", false
 	}
 	fp, err := r.cfg.qc.fingerprint(spec)
-	if err != nil || fp == "" {
+	if err != nil {
 		r.report(ctx, "fingerprint", nil, err)
+		return "", false
+	}
+	if fp == "" {
+		// 空串是契约允许的降级形态而非 error：必须以可识别哨兵上报，
+		// 否则 onError 因 err==nil 静默，降级在观测面上完全不可见（#251）。
+		r.report(ctx, "fingerprint", nil, ErrFingerprintDegraded)
 		return "", false
 	}
 	verKey := r.verKey(scope)
 	ver, err := r.cfg.qc.versions.Get(ctx, verKey)
 	if err != nil {
+		// 版本读失败时无法确认当前令牌：用空版本建键会回落到历史条目
+		// （空版本键不受任何 bump 约束），必须降级直通（#250）。
 		r.report(ctx, "read", []string{verKey}, err)
+		return "", false
 	}
 	current := ""
 	if ver != nil {
 		current = *ver
+	}
+	if current == "" {
+		// 版本键缺失/过期/被容量淘汰：签发新令牌替代空版本（#250）。
+		// 旧令牌下的条目自然脱离当前键空间（受各自 TTL 回收），版本
+		// 过期只导致一次重建，不致脏读——versions TTL 无需强制 ≥ 条目
+		// TTL。先 Set 后回源：若与写路径 bump 竞争，覆盖发生后本次回源
+		// 必然读到提交后的数据，不会把写前旧值写进当前令牌。
+		token := newVersionToken()
+		if err := r.cfg.qc.versions.Set(ctx, verKey, &token); err != nil {
+			r.report(ctx, "read", []string{verKey}, err)
+			return "", false
+		}
+		current = token
 	}
 	return r.queryKey(scope, kind, current, fp), true
 }

@@ -1,5 +1,63 @@
 
 
+## [v0.25.0] — 2026-11-23
+
+- refactor: 拆除 data/timertask 门面壳（零消费方的门面跟版税）
+- build: 依赖地板对齐（矩阵地板波次）——新地板：github.com/oekit/pkg v0.60.0。零行为变化；已发布产物的 go.mod 地板此前滞后于矩阵登记版本，本版把新地板焊进已发布产物。——纯 type alias 转发壳全矩阵非测试 import 为 0，壳只留两笔持续支付的税：门面跟版义务（timertask 每新增导出符号都要同步 alias 表，agentkit 门面 48 alias 的历史教训）+ BOM 地板错配面（data→timertask 的 require 参与地板跑步机空转）。timertask 直用 github.com/oekit/timertask（矩阵定位：分片定时任务独立仓），data 门面叙事收窄到 cache/gormrepo/redisx/distlock 真实实现消费面。README 模块表同步
+
+## [v0.24.1] — 2026-11-21
+
+- - fix: distlock 壳跟版 redisx WithOnLockLost/WithSemaphoreOnLockLost——#257 丢锁回调导出面进门面（shell_sync 拦截）（#257）
+
+关联问题单：data#257。
+
+## [v0.24.0] — 2026-11-21
+
+- 第三轮设计/缺陷审计（2026-11-21）data 修复：
+
+- feat: 新增 data/gormrepo 与 data/datatypes 门面壳——「一个 import」可装配完整 CRUD 栈（NewGormRepository 泛型薄包装/PaginateList/WithQueryDecorator；JSONSlice/JSONMap 泛型别名），门面十壳（#298）
+- fix: data/timertask 壳补 ErrKey/DefaultShutdownDrainGrace 转发 + 修正 ErrBackendStopped godoc 错位（#298）
+- feat: cached 新增 WithBloomVerifyOnMiss——bloom 判不存在时回源校验一次并异步补录（默认关，防穿透语义不变），修正 bloom 账本进程内/重启丢失的 godoc（#299）
+
+关联问题单：data#298、data#299。
+
+## [v0.23.0] — 2026-11-20
+
+- fix(cached): 层级键段边界校验——构造期 prefix/typ 含 : fail-fast、运行期 scope 含 : 降级直查、encodeID 产物逐键校验；pkg/cache.Key#188 与 etcdx keyseg 同族第三处治理，杜绝含 : 的租户/文本主键跨实体串缓存键（#285）
+fix(twolevel): 全部 11 个公开入口补 nil-ctx 兜底——pkg v0.55.1 cachetest 契约第 9 场景在地板 bump CI 暴露组合体 nil ctx 直捅 L2（#290）
+⚠ 行为面：此前含 : 的 scope/ID 若已在使用，升级后不再静默落歧义键（构造期 panic/运行期降级直查并上报），请检查既有键段合规性
+
+## [v0.22.6] — 2026-11-20
+
+- - fix: 门面壳跟版 gormx WithSkipProbe（OpenMySQL 跳过构造期连通性验证选项）+ 地板升 gormx v0.13.2（#285）
+
+## [v0.22.5] — 2026-11-19
+
+- - fix: 门面壳跟版 gormx PrimaryKeyField/PrimaryKeyColumn 与 timertask StartState/DrainWorkers 四个导出符号——源仓已发版而壳未跟（门面跟版税漏项，audit 漂移红卡解锁），补 var 转发/type alias（#282）
+
+## [v0.22.4] — 2026-11-19
+
+- - test: 门面泛型构造器补「构造+基本调用」冒烟测试——NewRedisCache/NewBaseService/Paginate 三处此前零行为覆盖（构造器本体在 generic.go 早已存在，#276 审计勘误留档）（#276）
+
+关联问题单：data#276。
+
+## [v0.22.3] — 2026-11-18
+
+- cached 版本令牌迁 stringx.RandomTokenOrFallback(pkg v0.53.0 原语)
+
+## [v0.22.2] — 2026-11-16
+
+- refactor: fmt.Errorf → oekit/pkg/errors 三形态对位替换（#520 替换波）+ 依赖地板抬至最新已发布
+
+## [v0.22.1] — 2026-11-15
+
+- 版本键过期不再脏读（#250）：版本键缺失/过期/淘汰即签发新令牌，空版本键退出键空间；版本后端读失败降级直通并上报
+- 指纹降级可观测（#251）：新增 ErrFingerprintDegraded 哨兵，空串降级从静默改为上报 op=fingerprint
+- Del/DelBatch 广播不吃调用方取消（#252）：bus.publish 统一 context.WithoutCancel，取消 ctx 后失效广播仍送达
+- 负结果防穿透（#253）：读面优先 HitGetter.GetEx 判负命中返回 ErrNotFound 并写负标记（TTL 兜底），写路径 bump 版本即失效——有意语义变更（#167 口径更新，文档已明示）
+
+关联问题单：data#250、data#251、data#252、data#253。
+
 ## [v0.22.0] — 2026-11-13
 
 - **BREAKING**：redisx 门面删除 Batch 类型别名（源包 redisx v0.16.0 已删 Batch/NewBatch，门面跟版税同步裁剪）。下游迁移：data/redisx.Batch → data/redisx.Pipeline（方法同构）。地板全量追平 redisx v0.16.0 / pkg v0.48.0 / concurrency v0.36.0 / logx v0.11.0 / gormx v0.12.0——下游升级后需 go mod tidy。

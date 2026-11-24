@@ -28,8 +28,11 @@ type BloomMAdder interface {
 //
 // ⚠️ 启用前提（违反会造成"数据消失"级事故）：
 //   - **所有写入必须走本装饰器**（Create 时自动 Add 新 ID）——旁路写入
-//     的 ID 不在 bloom 里，点读会被误判为不存在（null marker 兜底，
-//     错误窗口受 null TTL 约束但数据在窗口内不可见）；
+//     的 ID 不在 bloom 里，点读会被误判为不存在；且 bloom 只增不减、旁路
+//     写入不触发任何补录账本，**该行不是「窗口内不可见」而是永久
+//     ErrNotFound**（null marker 到期后重新问 bloom，仍判不存在），只能
+//     全量预热修复。确实无法约束旁路写入时请开启 WithBloomVerifyOnMiss
+//     （未命中回源确认一次 + 异步补录，用防穿透换正确性）；
 //   - **存量数据必须预热**（部署前把既有 ID 全量 MAdd）；
 //   - **实体 ID 必须可解析**（WithID 注入，或 GetID() 方法 / 名为 "ID" 的
 //     可导出字段缺省探测命中）——否则 Create 拿不到 ID、新实体永不进
@@ -37,10 +40,33 @@ type BloomMAdder interface {
 //   - ID 空间应当单调递增（自增主键天然满足）——bloom 只增不减，删除
 //     不摘除，误判只会放行仓储（正确，只是少省一次查询），绝不会反向。
 //
+// # 补录账本的进程内边界（data#299）
+//
+// bloomAdd 写失败时把元素记进 bloomPending 并在本进程内降级前置门（#224）
+// ——**账本只在内存里**：若补录失败后进程重启，pending 丢失，漏录 ID 不在
+// bloom 里且再也等不到「下一次成功补录合并重放」，旧行会被永久判
+// ErrNotFound（数据消失级、无告警，只能全量预热修复）。同理，旁路写入
+// （不经过本装饰器）从不产生账本信号。需要跨重启的正确性时二选一：
+// 全量预热作为部署/恢复流程的一部分，或开启 WithBloomVerifyOnMiss。
+//
 // bloom 读失败 fail-open 放行仓储（fail-closed 会错杀真数据，绝不接受）；
 // 读写异常均经 WithOnError 上报（op="bloom"）。
 func WithBloomFilter[T any, ID comparable](bf BloomChecker) CachedOption[T, ID] {
 	return func(c *config[T, ID]) { c.bloom = bf }
+}
+
+// WithBloomVerifyOnMiss 开启「bloom 判不存在时的一次仓储校验」：不再直接
+// 走 null marker，而是回源 GetByID 确认一次——行确实存在（补录失败后
+// 进程重启、或旁路写入从未 Add）则读到并异步补录 bloom，避免旧行被永久
+// 判 ErrNotFound；行不存在时照常返回 (nil, nil) 写 null marker。
+//
+// 代价：对**真正不存在**的 ID（恶意扫描）不再享受 bloom 的零仓储调用——
+// 每次缓存/null marker 未命中都要多打一次库，即「牺牲部分防穿透换正确性」。
+// 默认关闭（防穿透优先）；无法保证全量预热或不能接受漏录后永久误杀时
+// 开启。异步补录与 bloomAdd 同语义（失败进进程内账本、下次成功补录重放），
+// 且本选项保证即使账本随重启丢失，下一次点读仍会重新做仓储校验。
+func WithBloomVerifyOnMiss[T any, ID comparable]() CachedOption[T, ID] {
+	return func(c *config[T, ID]) { c.bloomVerifyOnMiss = true }
 }
 
 // bloomItem 实体 ID 的 bloom 元素形态（实体类型专享 bloom 实例，元素即
@@ -55,6 +81,9 @@ func WithBloomFilter[T any, ID comparable](bf BloomChecker) CachedOption[T, ID] 
 //
 // 真正需要按作用域隔离的是**缓存键**（null marker 落在其中），那由
 // WithScopeKey 保证。
+//
+// 元素含 ':' 无害（#285）：bloom 元素是单段等值比较、不参与键拼接，
+// #285 的段校验只约束进缓存键的路径（见 encodeIDSegment）。
 func (r *CachedRepository[T, ID]) bloomItem(id ID) string {
 	return r.encodeID(id)
 }
@@ -65,7 +94,9 @@ func (r *CachedRepository[T, ID]) bloomItem(id ID) string {
 // #224 降级：曾有补录写失败（bloomPending 非空）时整个前置门 fail-open
 // 直查库——漏录的 ID 在 bloom 里是「绝对不存在」，继续按前置门拦截会把
 // 已落库的行判成 ErrNotFound（数据消失级）。降级期只损失一层防穿透，
-// 正确性无损；下次成功补录（bloomAdd 合并重放 pending）自动恢复。
+// 正确性无损；**同一进程内**下次成功补录（bloomAdd 合并重放 pending）自动
+// 恢复。账本随进程重启丢失（data#299），跨重启的正确性见
+// WithBloomVerifyOnMiss 与 WithBloomFilter 的边界说明。
 func (r *CachedRepository[T, ID]) bloomGate(ctx context.Context, id ID) bool {
 	if r.cfg.bloom == nil {
 		return false
@@ -98,7 +129,9 @@ func (r *CachedRepository[T, ID]) bloomGate(ctx context.Context, id ID) bool {
 //   - 写失败 ⇒ 本批元素全部进 bloomPending 账本，置 bloomDown 降级快照
 //     （bloomGate 随即 fail-open 直查库，正确性由读侧兜住）；
 //   - 下一次 bloomAdd 成功 ⇒ 本批与账本合并为一批重放，成功后清账本、
-//     恢复前置门——Redis 恢复后的首次写入即自愈，无需显式重试循环；
+//     恢复前置门——Redis 恢复后的首次写入即自愈，无需显式重试循环
+//     （**仅同一进程**：账本不持久化，进程重启后 pending 丢失，只能靠
+//     全量预热或 WithBloomVerifyOnMiss 兜底，见 data#299）；
 //   - 并发安全：网络往返在 bloomMu 外（Create 的补录段不互相阻塞），
 //     账本读改在锁内，且**只删自己本批覆盖的元素**——并发批次的失败项
 //     不会被别人的成功误清。

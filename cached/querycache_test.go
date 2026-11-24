@@ -3,6 +3,7 @@ package cached_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -114,31 +115,47 @@ func TestGetOneCachedUntilWrite(t *testing.T) {
 	}
 }
 
-// GetOne 负结果不缓存：两次 miss 都回源（普通 Cache 接口无 null marker 通道）。
-func TestGetOneNegativeNotCached(t *testing.T) {
+// GetOne 负结果在 HitGetter 后端（LocalCache）写负标记（#253）：第二次
+// 直接命中负标记，不再回源；经本仓储的写操作 bump 版本后立即失效。
+func TestGetOneNegativeCachedWithHitGetter(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	ctx := context.Background()
 	cr := newQueryCachedRepo(repo)
+	q := crud.NewQuery().Where("id", "=", 99)
 
-	for i := 0; i < 2; i++ {
-		if _, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 99)); !errors.Is(err, crud.ErrNotFound) {
+	for i := range 2 {
+		if _, err := cr.GetOne(ctx, q); !errors.Is(err, crud.ErrNotFound) {
 			t.Fatalf("GetOne #%d err = %v, want ErrNotFound", i+1, err)
 		}
 	}
+	if n := repo.count("GetOne"); n != 1 {
+		t.Fatalf("repo.GetOne calls = %d, want 1（负结果命中负标记，不得回源）", n)
+	}
+
+	// 经仓储写入（bump 版本）后负标记必须立即失效
+	if err := cr.Create(ctx, &user{ID: 99, Name: "late"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := cr.GetOne(ctx, q)
+	if err != nil || got == nil || got.Name != "late" {
+		t.Fatalf("写后 GetOne = %v, %v; want late（负标记未被版本 bump 失效）", got, err)
+	}
 	if n := repo.count("GetOne"); n != 2 {
-		t.Fatalf("repo.GetOne calls = %d, want 2（负结果不缓存）", n)
+		t.Fatalf("repo.GetOne calls after write = %d, want 2", n)
 	}
 }
 
-// List 负结果不缓存（#167）：空页与 GetOne 负结果同口径——普通 Cache 无
-// null marker 通道，空页以正形态落盘会与「有行」不可分；带外写入（行入库
-// 但不经过本仓储 ⇒ 表级版本号不 bump）时 List 必须与 GetOne 结论一致。
-func TestListNegativeNotCached(t *testing.T) {
+// List 空页在 HitGetter 后端写负标记（#253）：第二次不再回源；经本仓储
+// 的写操作 bump 版本后立即失效。
+//
+// 与 #167 历史口径的差异（有意）：负结果一旦缓存，**带外**写入（不经过
+// 本仓储、不 bump 版本）在条目 TTL 内不可见——这是负结果防穿透的必然
+// 取舍；经本仓储的写路径保持一致（版本 bump）。
+func TestListNegativeCachedWithHitGetter(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	ctx := context.Background()
 	cr := newQueryCachedRepo(repo)
 
-	// 空结果连续 2 次：第二次必须回源（repo.List 调用次数=2）
 	for i := range 2 {
 		items, total, err := cr.List(ctx, crud.NewQuery())
 		if err != nil {
@@ -148,28 +165,57 @@ func TestListNegativeNotCached(t *testing.T) {
 			t.Fatalf("List #%d = %d items/%d total, want 0/0", i+1, len(items), total)
 		}
 	}
-	if n := repo.count("List"); n != 2 {
-		t.Fatalf("repo.List calls = %d, want 2（负结果不缓存）", n)
+	if n := repo.count("List"); n != 1 {
+		t.Fatalf("repo.List calls = %d, want 1（空页命中负标记，不得回源）", n)
 	}
 
-	// 带外写入后 List 立即可见（空页若被缓存，整条 TTL 内新行不可见）
-	repo.mu.Lock()
-	repo.byID[2] = &user{ID: 2, Name: "bob"}
-	repo.mu.Unlock()
-
+	if err := cr.Create(ctx, &user{ID: 1, Name: "new"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
 	items, total, err := cr.List(ctx, crud.NewQuery())
 	if err != nil {
-		t.Fatalf("List after out-of-band write: %v", err)
+		t.Fatalf("写后 List: %v", err)
 	}
-	if total != 1 || len(items) != 1 {
-		t.Fatalf("List after out-of-band write = %d items/%d total, want 1/1（空页被缓存会让带外行不可见）", len(items), total)
+	if len(items) != 1 || total != 1 {
+		t.Fatalf("写后 List = %d items/%d total, want 1/1（空页负标记未被版本 bump 失效）", len(items), total)
 	}
-	// 同一时刻 GetOne 必须同口径看到该行（结论一致性对照）
-	if got, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 2)); err != nil || got == nil {
-		t.Fatalf("GetOne after out-of-band write = %v, %v; want 命中", got, err)
+	if n := repo.count("List"); n != 2 {
+		t.Fatalf("repo.List calls after write = %d, want 2", n)
 	}
-	if n := repo.count("List"); n != 3 {
-		t.Fatalf("repo.List calls after out-of-band write = %d, want 3", n)
+}
+
+// plainCache 抹掉后端可选能力接口（只保留 Cache 最小面），模拟不具备
+// HitGetter 的后端（SingleFlightCache / RedisCache 当前形态）。
+type plainCache[T any] struct{ dcache.Cache[T] }
+
+// 不具备 HitGetter 的后端保持历史行为：负结果既不写标记也不可识别，
+// 每次回源（#253 的对照面——修复不得把「无法区分」当成「确定不存在」）。
+func TestNegativeNotCachedWithoutHitGetter(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	ctx := context.Background()
+
+	entityQ := &plainCache[user]{Cache: dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})}
+	pageQ := &plainCache[cached.QueryPage[user]]{Cache: dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})}
+	versions := dcache.NewLocalCache(dcache.LocalConfig[string]{TTL: time.Hour})
+	qc, err := cached.NewQueryCache[user](entityQ, pageQ, versions, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("NewQueryCache: %v", err)
+	}
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
+
+	for i := range 2 {
+		if _, err := cr.GetOne(ctx, crud.NewQuery().Where("id", "=", 99)); !errors.Is(err, crud.ErrNotFound) {
+			t.Fatalf("GetOne #%d err = %v, want ErrNotFound", i+1, err)
+		}
+		if _, _, err := cr.List(ctx, crud.NewQuery()); err != nil {
+			t.Fatalf("List #%d: %v", i+1, err)
+		}
+	}
+	if n := repo.count("GetOne"); n != 2 {
+		t.Fatalf("repo.GetOne calls = %d, want 2（无 HitGetter 时负结果不得缓存）", n)
+	}
+	if n := repo.count("List"); n != 2 {
+		t.Fatalf("repo.List calls = %d, want 2（无 HitGetter 时空页不得缓存）", n)
 	}
 }
 
@@ -190,7 +236,7 @@ func TestForUpdateNeverCached(t *testing.T) {
 	}
 }
 
-// 指纹失败：降级直通，不把错误当结果。
+// 指纹失败：降级直通，不把错误当结果；error 降级与空串降级可辨（#251）。
 func TestFingerprintFailurePassesThrough(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	repo.byID[1] = &user{ID: 1, Name: "a"}
@@ -206,7 +252,13 @@ func TestFingerprintFailurePassesThrough(t *testing.T) {
 	qc.WithFingerprint(func(spec crud.QuerySpec) (string, error) {
 		return "", errors.New("fingerprint unavailable")
 	})
-	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
+	var gotOps []string
+	var gotErrs []error
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc),
+		cached.WithOnError[user, int64](func(ctx context.Context, op string, keys []string, err error) {
+			gotOps = append(gotOps, op)
+			gotErrs = append(gotErrs, err)
+		}))
 
 	for i := 0; i < 2; i++ {
 		if _, _, err := cr.List(ctx, crud.NewQuery()); err != nil {
@@ -215,6 +267,58 @@ func TestFingerprintFailurePassesThrough(t *testing.T) {
 	}
 	if n := repo.count("List"); n != 2 {
 		t.Fatalf("repo.List calls = %d, want 2（指纹失败必须直通）", n)
+	}
+	if len(gotOps) != 2 || gotOps[0] != "fingerprint" {
+		t.Fatalf("指纹 error 降级必须上报 op=fingerprint，got %v", gotOps)
+	}
+	if errors.Is(gotErrs[0], cached.ErrFingerprintDegraded) {
+		t.Fatal("error 降级不应被标成空串哨兵（两者必须可辨）")
+	}
+}
+
+// 指纹函数返回空串（合法的「本次别缓存」形态）必须与 error 降级在
+// 观测面上等价（#251）：onError 收到 op="fingerprint" 且 err 命中
+// ErrFingerprintDegraded，而不是因 err==nil 静默零上报。
+func TestFingerprintEmptyStringReportsDegraded(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	ctx := context.Background()
+
+	entityQ := dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})
+	page := dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})
+	versions := dcache.NewLocalCache(dcache.LocalConfig[string]{TTL: time.Hour})
+	qc, err := cached.NewQueryCache[user](entityQ, page, versions, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("NewQueryCache: %v", err)
+	}
+	qc.WithFingerprint(func(spec crud.QuerySpec) (string, error) {
+		return "", nil // 契约允许的「本次别缓存」，不是 error
+	})
+	var gotOps []string
+	var gotErrs []error
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc),
+		cached.WithOnError[user, int64](func(ctx context.Context, op string, keys []string, err error) {
+			gotOps = append(gotOps, op)
+			gotErrs = append(gotErrs, err)
+		}))
+
+	for i := 0; i < 2; i++ {
+		if _, err := cr.GetOne(ctx, crud.NewQuery()); !errors.Is(err, crud.ErrNotFound) {
+			t.Fatalf("GetOne #%d err = %v, want ErrNotFound", i+1, err)
+		}
+	}
+	if n := repo.count("GetOne"); n != 2 {
+		t.Fatalf("repo.GetOne calls = %d, want 2（空串指纹必须直通）", n)
+	}
+	if len(gotOps) != 2 {
+		t.Fatalf("空串降级必须每次上报（got %d 次），观测面不得静默", len(gotOps))
+	}
+	for i := range gotOps {
+		if gotOps[i] != "fingerprint" {
+			t.Fatalf("第 %d 次上报 op = %q, want fingerprint", i+1, gotOps[i])
+		}
+		if !errors.Is(gotErrs[i], cached.ErrFingerprintDegraded) {
+			t.Fatalf("第 %d 次上报 err = %v, want ErrFingerprintDegraded", i+1, gotErrs[i])
+		}
 	}
 }
 
@@ -235,7 +339,8 @@ func TestGetOneForUpdateNeverCached(t *testing.T) {
 	}
 }
 
-// 版本键读失败：降级以空版本建键，列表缓存仍可用且不报错。
+// 版本键读失败：无法确认当前令牌 ⇒ 查询缓存降级直通，绝不以空版本
+// 建键回落到上一轮降级窗口的历史条目（#250）；失败经 onError 上报。
 func TestVersionReadFailureFallsBack(t *testing.T) {
 	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
 	repo.byID[1] = &user{ID: 1, Name: "a"}
@@ -261,11 +366,65 @@ func TestVersionReadFailureFallsBack(t *testing.T) {
 			t.Fatalf("List #%d: %v", i+1, err)
 		}
 	}
-	if n := repo.count("List"); n != 1 {
-		t.Fatalf("repo.List calls = %d, want 1（空版本键必须仍可命中缓存）", n)
+	if n := repo.count("List"); n != 2 {
+		t.Fatalf("repo.List calls = %d, want 2（版本读失败必须降级直通，不得用空版本键命中历史条目）", n)
 	}
 	if reported == 0 {
 		t.Fatal("版本读失败必须经 onError 上报")
+	}
+}
+
+// 版本键过期不得回落空版本键（#250）：空版本键上的历史条目不受任何
+// bump 约束，旧实现会在 versions 过期后命中写前旧值。修复后版本缺失
+// 签发新令牌，旧令牌条目自然作废，写后读保持新值。
+func TestVersionKeyExpiryNoStaleHit(t *testing.T) {
+	repo := newFakeRepo[user](func(u *user) int64 { return u.ID }, nil)
+	repo.byID[1] = &user{ID: 1, Name: "v0"}
+	ctx := context.Background()
+
+	// 假时钟只注入 versions：手动推进即确定性驱动版本键过期，无 sleep。
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	entityQ := dcache.NewLocalCache(dcache.LocalConfig[user]{TTL: time.Minute})
+	page := dcache.NewLocalCache(dcache.LocalConfig[cached.QueryPage[user]]{TTL: time.Minute})
+	versions := dcache.NewLocalCache(dcache.LocalConfig[string]{
+		TTL:               time.Hour,
+		NoBackgroundSweep: true,
+		Now:               func() time.Time { return time.Unix(0, clock.Load()) },
+	})
+	qc, err := cached.NewQueryCache[user](entityQ, page, versions, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("NewQueryCache: %v", err)
+	}
+	cr := cached.NewRepository[user, int64](repo, userCacheFactory, cached.WithQueryCache[user, int64](qc))
+
+	q := crud.NewQuery().Where("id", "=", 1)
+	// t0：版本键缺失，首次读回填 v0
+	got, err := cr.GetOne(ctx, q)
+	if err != nil || got == nil || got.Name != "v0" {
+		t.Fatalf("首次 GetOne = %v, %v; want v0", got, err)
+	}
+
+	// t1：写路径 bump 版本，读取得 v1
+	if _, werr := cr.Update(ctx, &user{ID: 1, Name: "v1"}); werr != nil {
+		t.Fatalf("Update: %v", werr)
+	}
+	got, err = cr.GetOne(ctx, q)
+	if err != nil || got == nil || got.Name != "v1" {
+		t.Fatalf("写后 GetOne = %v, %v; want v1", got, err)
+	}
+
+	// t2：versions 过期——旧实现回落空版本键命中 t0 的 v0
+	clock.Add(int64(2 * time.Hour))
+	got, err = cr.GetOne(ctx, q)
+	if err != nil || got == nil {
+		t.Fatalf("版本过期后 GetOne = %v, %v", got, err)
+	}
+	if got.Name != "v1" {
+		t.Fatalf("版本键过期后读到 %q, want v1（空版本键命中了写前旧值，#250）", got.Name)
+	}
+	if n := repo.count("GetOne"); n != 3 {
+		t.Fatalf("repo.GetOne calls = %d, want 3（版本过期后必须重建，不得命中空版本键条目）", n)
 	}
 }
 
