@@ -44,8 +44,6 @@ github.com/ncruces/go-strftime v1.1.0 h1:vtPmPWMkb539RGV9WpWT9EwJGvrOCKvMNI4obWL
 github.com/ncruces/go-strftime v1.1.0/go.mod h1:yVaq7iwCN09vHRrKBrrflXT0M9tTMG2KmZ9Fj7xeG/g=
 github.com/oekit/concurrency v0.40.0 h1:gFwginpsVXdY4R/hzwicyBa2u1WHmCN1h5Bw6ztlpBw=
 github.com/oekit/concurrency v0.40.0/go.mod h1:nnPMxDuUq8H9ZrqhsRpGY2n1FMAL0Jio2MZRPKlPeJo=
-github.com/oekit/gormx v0.14.2 h1:kmriaF9mQh+ttJz4zcTiPulLQdKtntmPH1woPvKK+d8=
-github.com/oekit/gormx v0.14.2/go.mod h1:pgfYk44ditKpkqJ9aGPgSjGpPHyS88Y9xquAK0VnG2U=
 github.com/oekit/gormx v0.15.0 h1:Rsl0CVooL8uuNHiaQnylG6+jQHR+ZUi41xT3QUnZvbk=
 github.com/oekit/gormx v0.15.0/go.mod h1:pgfYk44ditKpkqJ9aGPgSjGpPHyS88Y9xquAK0VnG2U=
 github.com/oekit/logx v0.12.1 h1:7vYBKiImDcCDqEXwl8BrQSp29MvFSBUOWFTPm33fw8s=
